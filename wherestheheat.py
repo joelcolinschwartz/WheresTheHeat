@@ -94,9 +94,9 @@ class parcel(object):
                 (ex: 192 pixels --> NPIX = 192, NSIDE = 4; 798 pixels --> NPIX = 798, NSIDE = 8)
                 Default is 8 but 4 is good enough and you should use 4 for fitting or it takes too long.
                 
-        wavelenght
+        wavelength
                 Values should be entered in micrometers. 
-                Used for inc/ emmitted flux calculations at this particular wavelenght.
+                Used for inc/ emmitted flux calculations at this particular wavelength.
                 Default is 8.
                 
     
@@ -122,7 +122,7 @@ class parcel(object):
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
                  Rplanet = 1.0870, a = 0.05, 
                  e = 0.1, argp = 0, 
-                 A = 0, ro = 100.0 , cp = 4200.0, H= 5.0, hh = 14121.0, Porb = -1, 
+                 A = 0, Porb = -1,
                  wadv = 2, tau_rad = 20, epsilon = None, pmax = 3, steps = 300, NSIDE = 8,
                  again_Tmap = None,again_t = 0,continueOrbit = False):
         
@@ -164,18 +164,7 @@ class parcel(object):
 
         A : Bond albedo (set to 0)
             Model doesn not handle reflected light right now. Setting albedo to a different value 
-            will have no effect than to reduce incoming flux by a certain fraction. 
-        
-        ro : not used 
-            mass density of atmospheric gas parcel kg/m^3 
-        cp : not used
-            heat capacity of gas in J/K 
-        hh : not used
-            scale height of planet
-        H : not used
-            H* hh --> thickness of gas parcel in scale heights     
-        ch : not used 
-            heat capacity of gas column in J/m^2  
+            will have no effect than to reduce incoming flux by a certain fraction.
         
         Porb (float): orbital period in days 
             will be calculated from Kepler's laws if Porb param set to -1    
@@ -271,10 +260,6 @@ class parcel(object):
         self.argp = argp #angle betwen periatron and transit in degrees 
         
         self.A = A #Bond albedo
-        self.ro = ro #mass density of gas parcel kg/m^3
-        self.cp = cp #heat capacity of gas parcel
-        self.hh =  hh #scale height of planet 
-        self.H = H* self.hh #thickness of parcel (will be a few scale heights)
         if Porb <= 0.0:
             self.Porb = 2*pi*(self.a**3/(self.Mstar*parcel.G))**(0.5)
         else:
@@ -285,8 +270,6 @@ class parcel(object):
             self.P = np.inf
         else:
             self.P = self.Porb/(wadv + 1)  ### JCS: Rot. period less than orb. period by this factor.
-        
-        self.ch=self.ro*self.cp*self.H # J/m^2 heat capacity of gas column
         
         ### JCS 12/7/16: SOMETHING SEEMS OFF ABOUT EITHER THIS OR THE WAY wadv IS DEFINED
         ### For 2nd, think: if e = 0 then Prot = Porb  here --> tidally locked
@@ -308,7 +291,6 @@ class parcel(object):
         
         self.T0 = Teff*(1-A)**(0.25)*(self.Rstar/(self.a*(1-self.e)))**(0.5) # * np.sin(theta))**0.25 when the parcel 
                                                                         #lives away from the equator
-        #self.tau_rad = self.ch/(sigmaB*self.T0**3)
         #self.epsilon = self.wadv*self.tau_rad
         if epsilon is None:        
             self.tau_rad = tau_rad * 3600.0 #it was in hours now its in seconds
@@ -379,13 +361,8 @@ class parcel(object):
                     argp = {6} #angle betwen periatron and transit in degrees 
                     theta = {7} (latitude of gas parcel - 0 North Pole, pi/2 equator)
                     A = {8} (Bond Albedo)
-                    ro = {9} kg/m^3 (Mass density of gas parcel)
-                    cp = {10} J/kg (heat capacity of gas parcel)
-                    h = {11} km (scale height of planet atmosphere)
-                    H = {12} scale heights (thickness of parcel)
                     P = {13} days (period of rotation of planet) **might need fixing
                     Porb = {14} days (orbital period of planet)
-                    ch = {15} - some type of units??? (heat capacity of gas column) )
                     wadv = {16} - units of angular frequency 2Pi/planetperiod *wadv??
                     T0 = {17} K (Temperature of substellar point at periastron)
                     tau_rad = {18} hrs (radiative time scale)
@@ -397,9 +374,9 @@ class parcel(object):
                     """.format (self.name, self.Teff, self.Rstar/parcel.rsun, self.Rplanet/parcel.rsun, 
                                 self.a/parcel.AU, self.e, self.argp, 
                                 "Nothing", 
-                                self.A, self.ro,
-                               self.cp, self.hh/1000, self.H/self.hh,self.P/parcel.days, self.Porb/parcel.days, 
-                                self.ch, self.wadv*self.P/ (2*pi), 
+                                self.A,
+                                self.P/parcel.days, self.Porb/parcel.days,
+                                self.wadv*self.P/ (2*pi),
                                 self.T0, self.tau_rad/ 3600.0, 
                                 self.epsilon, self.rotationsPerOrbit, self.rotationsPerDay ))
                                 
@@ -433,9 +410,9 @@ class parcel(object):
     
 
     
-    def Fstar(self, wavelenght = 8.0):
+    def Fstar(self, wavelength = 8.0):
 
-        """Calculates total flux emmitted by the star and wavelenght dependent flux.
+        """Calculates total flux emmitted by the star and wavelength dependent flux.
         
         Used for normalizing planet flux. (i.e. to express flux emmitted by the planet as 
         a fraction of stellar flux. )
@@ -449,7 +426,7 @@ class parcel(object):
         Parameters
         ----------
             wv (float)
-                Wavelenght we are interested in micrometers.
+                wavelength we are interested in micrometers.
 
             
         Returns
@@ -459,10 +436,10 @@ class parcel(object):
                     Total flux
                 
                 Fwv (float)
-                    Flux emmitted at the specified wavelenght.
+                    Flux emmitted at the specified wavelength.
 
             """
-        wv = wavelenght * 10**(-6) #wavelenght was in micrometers, it's now in meters
+        wv = wavelength * 10**(-6) #wavelength was in micrometers, it's now in meters
         F = self.sigmaB*self.Teff**4*pi*self.Rstar**2
         Fwv = ((2*self.h*self.c**2/wv**5)*(1/(np.e**((self.h*self.c)/
                 (wv*self.K*self.Teff))-1))*pi*self.Rstar**2 )
@@ -471,7 +448,7 @@ class parcel(object):
         
     def Finc(self):
                 
-        """Total (all wavelenghts) flux incident on substellar point as 
+        """Total (all wavelengths) flux incident on substellar point as 
         a function of time (position in the orbit).
         
         Used in self.DE for '"incoming energy" value as (Finc/ Finc_max)*Fweight;
@@ -1070,8 +1047,8 @@ class parcel(object):
                         return t, d
 
     
-    def Fleaving(self, wavelenght = 8.0, MAP = False):#, TEST = False):
-        """Calculates outgoing planetary flux (Total and wavelenght dependant)
+    def Fleaving(self, wavelength = 8.0, MAP = False):#, TEST = False):
+        """Calculates outgoing planetary flux (Total and wavelength dependant)
         from the temperature values coming from the DE. 
 
             Note
@@ -1083,8 +1060,8 @@ class parcel(object):
             Parameters
             ----------
                 
-            wavelenght
-                in micrometers; wavelenght to calculate the flux at. 
+            wavelength
+                in micrometers; wavelength to calculate the flux at. 
                 
             MAP:
                 Default is False.
@@ -1147,17 +1124,17 @@ class parcel(object):
                     for drawing. see shuffle() 
                     
                 Fleavingwv
-                    1D array, contains  flux (wavelenght dependant) integrated over planet surface
+                    1D array, contains  flux (wavelength dependant) integrated over planet surface
                     at each moment in time. This isnt super useful because you wouldnt 
                     be able to see all the flux coming from the planet.
                     
                 Ftotal
-                    1D array, contains flux (all wavelenghts) integrated over planet surface
+                    1D array, contains flux (all wavelengths) integrated over planet surface
                     at each moment in time. Again, not super useful unless you're making figures.
    
             """
        
-        wv = wavelenght*10**(-6)        
+        wv = wavelength*10**(-6)        
         
         t, d = self.DE()
         
@@ -1167,7 +1144,7 @@ class parcel(object):
         
         a = (2*self.h*self.c**2/wv**5)
         
-        b = (self.h*self.c*10**6)/(wavelenght*self.K*self.T0)
+        b = (self.h*self.c*10**6)/(wavelength*self.K*self.T0)
 
         Fwv = a* 1/(np.expm1(b/np.array(d[:,:,2])))
       
@@ -1199,8 +1176,8 @@ class parcel(object):
             return t, d, Fmap_wv
 
     
-    def Fobs(self, wavelenght = 8.0, PRINT = False, MAP = False, BOLO = False, HEMISUM = False):  ###JCS: Added 'HEMISUM' 02/15/17
-        """ Calculates outgoing planetary flux as seen by an observer (wavelenght dependant only).
+    def Fobs(self, wavelength = 8.0, PRINT = False, MAP = False, BOLO = False, HEMISUM = False):  ###JCS: Added 'HEMISUM' 02/15/17
+        """ Calculates outgoing planetary flux as seen by an observer (wavelength dependant only).
         
 
             Note
@@ -1214,8 +1191,8 @@ class parcel(object):
             Parameters
             ----------
 
-            wavelenght
-                in micrometers; wavelenght to calculate the flux at. 
+            wavelength
+                in micrometers; wavelength to calculate the flux at. 
                 
             PRINT (bool):
                 Option to print the results to a text file. Only works if MAP is also True.
@@ -1226,7 +1203,7 @@ class parcel(object):
             Calls
             -------
             
-            self.Fleaving(wavelenght) to get :
+            self.Fleaving(wavelength) to get :
 
                 Fmap_wv 
                     2D array[time, NPIX flux values]. outgoing flux map 
@@ -1278,7 +1255,7 @@ class parcel(object):
                 function for drawing with hp.mollview().  
                 
             Fwv
-                1D array, contains observed flux (wavelenght dependant) integrated over planet surface
+                1D array, contains observed flux (wavelength dependant) integrated over planet surface
                 at each moment in time.
                 *and this one 
                 
@@ -1303,7 +1280,7 @@ class parcel(object):
         if MAP:
         
             'call the functions we need'
-            t, d, Fmap_wv, Fmap_wvpix,Fleavingwv, Ftotal = self.Fleaving( wavelenght, MAP = True)
+            t, d, Fmap_wv, Fmap_wvpix,Fleavingwv, Ftotal = self.Fleaving( wavelength, MAP = True)
             
             #weight = self.weight
             weight = self.visibility(d)
@@ -1340,7 +1317,7 @@ class parcel(object):
                 return  t, d, Fmapwvobs, weight, weightpix, Fwv
     
         else:
-            t, d, Fmap_wv = self.Fleaving(wavelenght)
+            t, d, Fmap_wv = self.Fleaving(wavelength)
             weight = self.visibility(d)
             ###JCS: Modified below here
             
@@ -1658,7 +1635,7 @@ class fitter (parcel):
     def __init__(self,parcel,ts = np.linspace(-60000,260000,num = 1000), me = 'HotWaterEarth', 
                  Teff =6000.0, Rstar = 1.0, Mstar = 1.5, Rplanet = 1.0870, a = 0.05, 
                  e = 0.1, argp = 0, 
-                 A = 0, ro = 100.0 , cp = 4200.0, H= 5.0, hh = 14121.0, Porb = -1, 
+                 A = 0, Porb = -1,
                  wadv = 2, tau_rad = 20, epsilon = None, pmax = 3, steps = 300, NSIDE = 8):
                      
                      
@@ -1700,7 +1677,7 @@ class fitter (parcel):
         super(fitter, self).__init__(self, 
                  Teff =Teff, Rstar = Rstar, Mstar = Mstar, Rplanet = Rplanet, a = a, 
                  e = e, argp = argp, 
-                 A = A, ro = ro , cp = cp, H= H, hh = hh, Porb = Porb, 
+                 A = A, Porb = Porb,
                  wadv = wadv, tau_rad = tau_rad, epsilon = epsilon, pmax = pmax, steps = steps, NSIDE = NSIDE)
         
         self.ts = ts
