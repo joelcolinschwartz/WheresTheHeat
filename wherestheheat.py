@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Aug  6 16:21:25 2016
 
-@author: diana
-"""
-# -*- coding: utf-8 -*-
-"""
+
+**Put your cleand-up module docstring above this line.**
+
+
+
+
 New in # 6
 
 Created a subclass called fitter. It'll take results from parcel class, 
@@ -16,10 +17,6 @@ wadv. It's quicker... and doesn't return any maps and crap.
 - I removed the unfinished countour shit. I can find them in #5 if i need to finish them and add them later.
 
 - You have to define your fitter object in an awkward way. see fitter.__init__()
-
-"""
-"""
-
 
 TO DO
 -----
@@ -47,20 +44,19 @@ phase curve for an arbitrary number of orbits (default is 3).
 -fitter is  a subclass of parcel. It takes an arbitrary time array and a parcel object as input 
 and stitches it to the default 'parcel' time 
 array. It then outputs a planetary phase curve for only the time values in your time array. 
-It can be used for fitting for parameters tau_rad and wadv"""
+It can be used for fitting for parameters tau_rad and wadv
+
+"""
 
 import numpy as np
-#import matplotlib.pyplot as plt
-#from scipy import integrate
-from PyAstronomy import pyasl
 import healpy as hp
+#import matplotlib.pyplot as plt
+from PyAstronomy import pyasl
 
 pi = np.pi
 
 
-
 class parcel(object):
-
 
     """This class allows you to create a planet object and assign it appropriate orbital 
     and planetary parameters.It uses class functions to calculate the planetary phase curve 
@@ -99,8 +95,6 @@ class parcel(object):
                 Used for inc/ emmitted flux calculations at this particular wavelength.
                 Default is 8.
                 
-    
-                
     """
 
     AU = 1.49597870700* 10**11 #m
@@ -118,7 +112,6 @@ class parcel(object):
     c = 299792458 #m/s
 
 
-    
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
                  Rplanet = 1.0870, a = 0.05, 
                  e = 0.1, argp = 0, 
@@ -245,11 +238,9 @@ class parcel(object):
         phis, thetas - initial pixel coordinates. starting point for each gas parcel
         on the planet
         
-        
         """
 
         self.name = name    # instance variable unique to each instance
-
 
         self.Teff = Teff #temp star
         self.Rstar = Rstar * parcel.rsun #radius star
@@ -358,22 +349,20 @@ class parcel(object):
                     Rplanet = {3} R-sun (Radius Planet in solar radii)
                     a = {4} AU (semimajor axis)
                     e = {5} (eccentricity)
-                    argp = {6} #angle betwen periatron and transit in degrees 
-                    theta = {7} (latitude of gas parcel - 0 North Pole, pi/2 equator)
-                    A = {8} (Bond Albedo)
-                    P = {13} days (period of rotation of planet) **might need fixing
-                    Porb = {14} days (orbital period of planet)
-                    wadv = {16} - units of angular frequency 2Pi/planetperiod *wadv??
-                    T0 = {17} K (Temperature of substellar point at periastron)
-                    tau_rad = {18} hrs (radiative time scale)
-                    epsilon = {19} dimensionless circulation efficeincy param
-                    default rotationsPerOrbit = {20} #used for giving the default time lenght for DE
-                    default rotationsPerDay = {21} #used for giving the default precision for DE
+                    argp = {6} #angle betwen periatron and transit in degrees
+                    A = {7} (Bond Albedo)
+                    P = {8} days (period of rotation of planet) **might need fixing
+                    Porb = {9} days (orbital period of planet)
+                    wadv = {10} - units of angular frequency 2Pi/planetperiod *wadv??
+                    T0 = {11} K (Temperature of substellar point at periastron)
+                    tau_rad = {12} hrs (radiative time scale)
+                    epsilon = {13} dimensionless circulation efficeincy param
+                    default rotationsPerOrbit = {14} #used for giving the default time lenght for DE
+                    default rotationsPerDay = {15} #used for giving the default precision for DE
                     **** all of these are converted to SI units but they need 
                     to be entered in the units mentioned here ***
                     """.format (self.name, self.Teff, self.Rstar/parcel.rsun, self.Rplanet/parcel.rsun, 
-                                self.a/parcel.AU, self.e, self.argp, 
-                                "Nothing", 
+                                self.a/parcel.AU, self.e, self.argp,
                                 self.A,
                                 self.P/parcel.days, self.Porb/parcel.days,
                                 self.wadv*self.P/ (2*pi),
