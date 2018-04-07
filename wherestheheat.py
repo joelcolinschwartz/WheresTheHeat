@@ -114,7 +114,8 @@ class parcel(object):
 
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
                  Rplanet = 1.0870, a = 0.05, 
-                 e = 0.1, argp = 0, 
+                 e = 0.1, argp = 0,
+                 motions='calc', orbval=1.0, rotval=1.0,
                  A = 0, Porb = -1,
                  wadv = 2, tau_rad = 20, epsilon = None, pmax = 3, steps = 300, NSIDE = 8,
                  again_Tmap = None,again_t = 0,continueOrbit = False):
@@ -239,61 +240,91 @@ class parcel(object):
         on the planet
         
         """
+        
+        self.name = name
 
-        self.name = name    # instance variable unique to each instance
+        self.Teff = Teff  # star effective temp
+        self.Rstar = Rstar*parcel.rsun  # star radius
+        self.Mstar = Mstar*parcel.Msun # star mass
+        self.Rplanet = Rplanet*parcel.RJup  # planet mass
+        self.a = a*parcel.AU  # semimajor axis
+        self.e = e  # eccentricity
+        self.argp = argp  # angle betwen periatron and transit (degrees)
+        
+        self.A = A  # planet Bond albedo
 
-        self.Teff = Teff #temp star
-        self.Rstar = Rstar * parcel.rsun #radius star
-        self.Mstar = 1.0* parcel.Msun #mass of the star in solar masses
-        self.Rplanet = Rplanet * parcel.RJup
-        self.a = a * parcel.AU #semimajor axis
-        self.e = e #eccentricity
-        self.argp = argp #angle betwen periatron and transit in degrees 
-        
-        self.A = A #Bond albedo
-        if Porb <= 0.0:
-            self.Porb = 2*pi*(self.a**3/(self.Mstar*parcel.G))**(0.5)
-        else:
-            self.Porb =  Porb* self.days #orbital period in seconds formula --
-            
-        ###JCS### self.P =  self.Prot() #self.Prot() P* parcel.days#period of rotation planet in seconds
-        if wadv == -1:
-            self.P = np.inf
-        else:
-            self.P = self.Porb/(wadv + 1)  ### JCS: Rot. period less than orb. period by this factor.
-        
-        ### JCS 12/7/16: SOMETHING SEEMS OFF ABOUT EITHER THIS OR THE WAY wadv IS DEFINED
-        ### For 2nd, think: if e = 0 then Prot = Porb  here --> tidally locked
-        ### Written above that wadv = 1 means gas doesn't move w.r.t. sub-stellar point
-        ### But C+A 2011a has tidally locked atmosphere with wadv = 0.
-        ### Hmmm...
-        ###
-        ### AH! KEY POINT: Looks like you can't (well, rather shouldn't) specify Prot, Porb, AND ALSO wadv.
-        ### That's because wadv = wrot - worb
-        ### Unless I'm mixing up core and atmosphere angular velocities, this is likely the problem.
-        ### PICK UP FROM HERE NEXT TIME!!
-        
-        ###JCS### self.wadv = (2*pi/self.P)*wadv #think this is a param we need to fit for. In units of how much faster 
-                                        #the parcel moves compared to the period of the planet. 
-                                        #+ moves with rotation of planet, - against
-        self.wadv = ((2.0*pi/self.P) - (2.0*pi/self.Porb))  ### JCS: Now properly defining w_adv from rot. and orb. ang. velocities
-        
-        ###
-        
-        self.T0 = Teff*(1-A)**(0.25)*(self.Rstar/(self.a*(1-self.e)))**(0.5) # * np.sin(theta))**0.25 when the parcel 
-                                                                        #lives away from the equator
-        #self.epsilon = self.wadv*self.tau_rad
-        if epsilon is None:        
-            self.tau_rad = tau_rad * 3600.0 #it was in hours now its in seconds
-            self.epsilon = self.tau_rad * np.abs(self.wadv)
-            
-        else:
+        if motions == 'calc':
+            self.Porb = 2.0*pi*(((self.a**3.0)/(self.Mstar*parcel.G))**0.5)
+            self.P = self.Prot()
+            self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
+        elif motions == 'per':
+            self.Porb = orbval*days
+            self.P = rotval*days
+            self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
+        elif motions == 'freq':  ## DO THESE NEED 'days' MULTIPLIED?
+            self.Porb = (2.0*pi/orbval)
+            self.P = (2.0*pi/rotval)
+            self.wadv = rotval - orbval
+
+        self.T0 = Teff*((1-A)**0.25)*((self.Rstar/(self.a*(1-self.e)))**0.5)
+
+        if self.e == 0:
+            self.epsilon = epsilon
             if self.wadv == 0:
-                self.epsilon = 0
                 self.tau_rad = 0
             else:
-                self.epsilon = epsilon
-                self.tau_rad = np.abs(self.epsilon/self.wadv)
+                self.tau_rad = abs(epsilon/self.wadv)
+        else:
+            self.tau_rad = tau_rad*3600.0  # Because input tau_rad is in hours(?)
+            self.epsilon = abs(self.wadv)*tau_rad
+
+        
+
+        #####  #####
+        
+##        if Porb <= 0.0:
+##            self.Porb = 2*pi*(self.a**3/(self.Mstar*parcel.G))**(0.5)
+##        else:
+##            self.Porb =  Porb* self.days #orbital period in seconds formula --
+##            
+##        ###JCS### self.P =  self.Prot() #self.Prot() P* parcel.days#period of rotation planet in seconds
+##        if wadv == -1:
+##            self.P = np.inf
+##        else:
+##            self.P = self.Porb/(wadv + 1)  ### JCS: Rot. period less than orb. period by this factor.
+##        
+##        ### JCS 12/7/16: SOMETHING SEEMS OFF ABOUT EITHER THIS OR THE WAY wadv IS DEFINED
+##        ### For 2nd, think: if e = 0 then Prot = Porb  here --> tidally locked
+##        ### Written above that wadv = 1 means gas doesn't move w.r.t. sub-stellar point
+##        ### But C+A 2011a has tidally locked atmosphere with wadv = 0.
+##        ### Hmmm...
+##        ###
+##        ### AH! KEY POINT: Looks like you can't (well, rather shouldn't) specify Prot, Porb, AND ALSO wadv.
+##        ### That's because wadv = wrot - worb
+##        ### Unless I'm mixing up core and atmosphere angular velocities, this is likely the problem.
+##        ### PICK UP FROM HERE NEXT TIME!!
+##        
+##        ###JCS### self.wadv = (2*pi/self.P)*wadv #think this is a param we need to fit for. In units of how much faster 
+##                                        #the parcel moves compared to the period of the planet. 
+##                                        #+ moves with rotation of planet, - against
+##        self.wadv = ((2.0*pi/self.P) - (2.0*pi/self.Porb))  ### JCS: Now properly defining w_adv from rot. and orb. ang. velocities
+##        
+##        ###
+##        
+##        self.T0 = Teff*(1-A)**(0.25)*(self.Rstar/(self.a*(1-self.e)))**(0.5) # * np.sin(theta))**0.25 when the parcel 
+##                                                                        #lives away from the equator
+##        #self.epsilon = self.wadv*self.tau_rad
+##        if epsilon is None:        
+##            self.tau_rad = tau_rad * 3600.0 #it was in hours now its in seconds
+##            self.epsilon = self.tau_rad * np.abs(self.wadv)
+##            
+##        else:
+##            if self.wadv == 0:
+##                self.epsilon = 0
+##                self.tau_rad = 0
+##            else:
+##                self.epsilon = epsilon
+##                self.tau_rad = np.abs(self.epsilon/self.wadv)
         
         
         #PRE-CALCULATED FUNCTIONS 
