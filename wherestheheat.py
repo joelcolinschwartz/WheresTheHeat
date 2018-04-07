@@ -112,6 +112,12 @@ class parcel(object):
     c = 299792458 #m/s
 
 
+    def _period_calc(self):
+        orb_per = 2.0*pi*(((self.a**3.0)/(self.Mstar*parcel.G))**0.5)
+        rot_per = orb_per*((1-self.e)**1.5)*((1+self.e)**(-0.5))
+        return orb_per,rot_per
+    
+
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
                  Rplanet = 1.0870, a = 0.05, 
                  e = 0.1, argp = 0,
@@ -254,8 +260,7 @@ class parcel(object):
         self.A = A  # planet Bond albedo
 
         if motions == 'calc':
-            self.Porb = 2.0*pi*(((self.a**3.0)/(self.Mstar*parcel.G))**0.5)
-            self.P = self.Prot()
+            self.Porb,self.P = _period_calc()
             self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
         elif motions == 'per':
             self.Porb = orbval*days
@@ -403,30 +408,30 @@ class parcel(object):
      
     """ FUNCTIONS FOR DEFINING THE PLANET CONDITIONS, STELLAR FLUX """
        
-    def Prot(self):
-
-        """Calculates rotational period :: Prot :: of the planet when given orbital period.
-        
-        Used only by __init__ . 
-        
-        Note
-        ----
-             wrot = 2*Pi/Prot is chosen to match wmax (orbital angular velocity at periastron );
-             wadv is expressed as a multiple of wmax, with ( - ) meaning a rotation in the oposite direction. 
-             
-    
-        Parameters 
-        ----------
-            None. Uses eccentricity and orbital period, from the planet's description. 
-        
-        Returns
-        -------
-            
-            Prot in seconds.
-
-            """
-        Prot = self.Porb*(1-self.e)**(1.5)*(1+self.e)**(-0.5)        
-        return Prot
+##    def Prot(self):
+##
+##        """Calculates rotational period :: Prot :: of the planet when given orbital period.
+##        
+##        Used only by __init__ . 
+##        
+##        Note
+##        ----
+##             wrot = 2*Pi/Prot is chosen to match wmax (orbital angular velocity at periastron );
+##             wadv is expressed as a multiple of wmax, with ( - ) meaning a rotation in the oposite direction. 
+##             
+##    
+##        Parameters 
+##        ----------
+##            None. Uses eccentricity and orbital period, from the planet's description. 
+##        
+##        Returns
+##        -------
+##            
+##            Prot in seconds.
+##
+##            """
+##        Prot = self.Porb*(1-self.e)**(1.5)*(1+self.e)**(-0.5)      
+##        return Prot
     
 
     
