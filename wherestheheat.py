@@ -2,7 +2,7 @@
 """
 
 
-**Put your cleand-up module docstring above this line.**
+**Put your cleaned-up module docstring above this line.**
 
 
 
@@ -97,23 +97,23 @@ class parcel(object):
                 
     """
 
-    AU = 1.49597870700* 10**11 #m
-    sigmaB = 5.670367*10**(-8) #W m−2 K−4) 
-    K = 1.38064852*10**(-23) #gas constant #(m^2*kg)/(s^2*K) 
-    days = 86400 #seconds
+    astro_unit = (1.49597870700)*(10**11)  # in m
+    stef_boltz = (5.670367)*(10**(-8))  # Stefan-Boltzmann constant
+    boltz = (1.38064852)*(10**(-23))  # Boltzmann constant
+    sec_per_day = 86400
     
-    rsun = 695700000 #m
-    Msun = 1.989 *10**(30) #kg
-    G = 6.67408*10**(-11) #N*m^2/ kg^2
-    MJup = 1.898 *10**27 #kg
-    RJup  = 69911000 #m
+    radius_sun = (6.957)*(10**8)  # in m
+    radius_jupiter = (6.9911)*(10**7)  # in m
+    mass_sun = (1.98855)*(10**30)  # in kg
+    mass_jupiter = (1.8982)*(10**27)  # in kg
+    grav_const = (6.67408)*(10**(-11))  # Gravitational constant
     
-    h = 6.626070040*10**(-34) #J*s
-    c = 299792458 #m/s
+    planck = (6.62607004)*(10**(-34))
+    speed_light = (2.99792458)*(10**8)  # in m/s
 
 
     def _period_calc(self):
-        orb_per = 2.0*pi*(((self.a**3.0)/(self.Mstar*parcel.G))**0.5)
+        orb_per = 2.0*pi*(((self.a**3.0)/(self.Mstar*parcel.grav_const))**0.5)
         rot_per = orb_per*((1-self.e)**1.5)*((1+self.e)**(-0.5))
         return orb_per,rot_per
     
@@ -211,7 +211,7 @@ class parcel(object):
             
             used for giving the default time lenght for DE
         
-        rotationsPerDay : int(self.P/self.days) 
+        rotationsPerDay : int(self.P/self.sec_per_day)
             
             used for giving the default precision for DE
             
@@ -250,10 +250,10 @@ class parcel(object):
         self.name = name
 
         self.Teff = Teff  # star effective temp
-        self.Rstar = Rstar*parcel.rsun  # star radius
-        self.Mstar = Mstar*parcel.Msun # star mass
-        self.Rplanet = Rplanet*parcel.RJup  # planet mass
-        self.a = a*parcel.AU  # semimajor axis
+        self.Rstar = Rstar*parcel.radius_sun  # star radius
+        self.Mstar = Mstar*parcel.mass_sun # star mass
+        self.Rplanet = Rplanet*parcel.radius_jupiter  # planet mass
+        self.a = a*parcel.astro_unit  # semimajor axis
         self.e = e  # eccentricity
         self.argp = argp  # angle betwen periatron and transit (degrees)
         
@@ -263,10 +263,10 @@ class parcel(object):
             self.Porb,self.P = _period_calc()
             self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
         elif motions == 'per':
-            self.Porb = orbval*days
-            self.P = rotval*days
+            self.Porb = orbval*sec_per_day
+            self.P = rotval*sec_per_day
             self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
-        elif motions == 'freq':  ## DO THESE NEED 'days' MULTIPLIED?
+        elif motions == 'freq':  ## DO THESE NEED 'sec_per_day' MULTIPLIED?
             self.Porb = (2.0*pi/orbval)
             self.P = (2.0*pi/rotval)
             self.wadv = rotval - orbval
@@ -288,11 +288,11 @@ class parcel(object):
         #####  #####
         
 ##        if Porb <= 0.0:
-##            self.Porb = 2*pi*(self.a**3/(self.Mstar*parcel.G))**(0.5)
+##            self.Porb = 2*pi*(self.a**3/(self.Mstar*parcel.grav_const))**(0.5)
 ##        else:
-##            self.Porb =  Porb* self.days #orbital period in seconds formula --
+##            self.Porb =  Porb* self.sec_per_day #orbital period in seconds formula --
 ##            
-##        ###JCS### self.P =  self.Prot() #self.Prot() P* parcel.days#period of rotation planet in seconds
+##        ###JCS### self.P =  self.Prot() #self.Prot() P* parcel.sec_per_day#period of rotation planet in seconds
 ##        if wadv == -1:
 ##            self.P = np.inf
 ##        else:
@@ -337,7 +337,7 @@ class parcel(object):
         if self.P == np.inf:
             self.rotationsPerDay = 1
         else:
-            self.rotationsPerDay = int(max(self.P/self.days,1)) #used for giving the default precision for DE  ###JCS: Not needed anymore
+            self.rotationsPerDay = int(max(self.P/self.sec_per_day,1)) #used for giving the default precision for DE  ###JCS: Not needed anymore
         self.pmax = pmax
         self.steps = steps
         self.pmaxi = self.pmax ###JCS num. of orb. periods  #* self.rotationsPerOrbit #number of rotational periods we will integrate for 
@@ -360,7 +360,7 @@ class parcel(object):
         
         
         # we're not fitting, keeping time aray to default
-        self.dayss = self.t*(np.abs(self.wadv))/(2*pi) 
+        self.dayss = self.t*(np.abs(self.wadv))/(2*pi)  ## WHAT IS THIS ONE??
         self.NSIDE = NSIDE
         
         
@@ -397,10 +397,10 @@ class parcel(object):
                     default rotationsPerDay = {15} #used for giving the default precision for DE
                     **** all of these are converted to SI units but they need 
                     to be entered in the units mentioned here ***
-                    """.format (self.name, self.Teff, self.Rstar/parcel.rsun, self.Rplanet/parcel.rsun, 
-                                self.a/parcel.AU, self.e, self.argp,
+                    """.format (self.name, self.Teff, self.Rstar/parcel.radius_sun, self.Rplanet/parcel.radius_sun,
+                                self.a/parcel.astro_unit, self.e, self.argp,
                                 self.A,
-                                self.P/parcel.days, self.Porb/parcel.days,
+                                self.P/parcel.sec_per_day, self.Porb/parcel.sec_per_day,
                                 self.wadv*self.P/ (2*pi),
                                 self.T0, self.tau_rad/ 3600.0, 
                                 self.epsilon, self.rotationsPerOrbit, self.rotationsPerDay ))
@@ -444,7 +444,7 @@ class parcel(object):
         
         Note
         ----
-             F = sigmaB * Teff**4 * Pi * Rstar**2.
+             F = stef_boltz * Teff**4 * Pi * Rstar**2.
              Fwv = BBflux(wv) * Pi * Rstar**2
              
     
@@ -465,9 +465,9 @@ class parcel(object):
 
             """
         wv = wavelength * 10**(-6) #wavelength was in micrometers, it's now in meters
-        F = self.sigmaB*self.Teff**4*pi*self.Rstar**2
-        Fwv = ((2*self.h*self.c**2/wv**5)*(1/(np.e**((self.h*self.c)/
-                (wv*self.K*self.Teff))-1))*pi*self.Rstar**2 )
+        F = self.stef_boltz*self.Teff**4*pi*self.Rstar**2
+        Fwv = ((2*self.planck*self.speed_light**2/wv**5)*(1/(np.e**((self.planck*self.speed_light)/
+                (wv*self.boltz*self.Teff))-1))*pi*self.Rstar**2 )
         return F, Fwv
         
         
@@ -482,7 +482,7 @@ class parcel(object):
 
         Note
         ----
-             sigmaB*Teff**4*(Rstar/r(t))**2.
+             stef_boltz*Teff**4*(Rstar/r(t))**2.
         
         Parameters 
         ----------
@@ -498,7 +498,7 @@ class parcel(object):
             """  
 
         
-        return self.sigmaB*self.Teff**4*(self.Rstar/np.array(self.radius))**2
+        return self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius))**2
         
     def Finc_hemi(self):
         
@@ -1003,7 +1003,7 @@ class parcel(object):
                     
                     if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
                         
-                        #d[:,:,2] = (((1-self.A)*Fweight)/self.sigmaB)**(0.25)
+                        #d[:,:,2] = (((1-self.A)*Fweight)/self.stef_boltz)**(0.25)
                         d[:,:,2] = (((1-self.A)*Fweight))**(0.25)
                     else:
                         'changed this to work with arbitrary time'
@@ -1036,16 +1036,16 @@ class parcel(object):
             else:
                     
                         
-                    #parcel.sigmaB*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2    
+                    #parcel.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
                     'normalized flux -- (minimum radius/ radius(t))**2'   
                     Fstar = (self.Finc().reshape(-1,1)) #*Fweight
                  
-                    F = Fstar/(parcel.sigmaB*self.Teff**4*(self.Rstar/(self.a*(1-self.e)))**2)*Fweight
+                    F = Fstar/(parcel.stef_boltz*self.Teff**4*(self.Rstar/(self.a*(1-self.e)))**2)*Fweight
                     #F = ((self.a*(1-self.e)/self.radius(pmax, steps)[1])**2)
                     
                     if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
                         
-                        d[:,:,2] = (((1-self.A)*F)/self.sigmaB)**(0.25)
+                        d[:,:,2] = (((1-self.A)*F)/self.stef_boltz)**(0.25)
                 
                     else:
                         "deltat will have to be changed for use in fitting"
@@ -1167,9 +1167,9 @@ class parcel(object):
         'Sometimes this has an overflow problem'
         
         
-        a = (2*self.h*self.c**2/wv**5)
+        a = (2*self.planck*self.speed_light**2/wv**5)
         
-        b = (self.h*self.c*10**6)/(wavelength*self.K*self.T0)
+        b = (self.planck*self.speed_light*10**6)/(wavelength*self.boltz*self.T0)
 
         Fwv = a* 1/(np.expm1(b/np.array(d[:,:,2])))
       
@@ -1179,7 +1179,7 @@ class parcel(object):
   
         Fmap_wv = (Fwv *dA)#/Fwvstar
         
-        Ftotal_ = (self.sigmaB * (d[:,:,2]*self.T0)**4)*dA
+        Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
         
         
 
@@ -1348,7 +1348,7 @@ class parcel(object):
             
             if BOLO == True:
                 dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
-                Ftotal_ = (self.sigmaB * (d[:,:,2]*self.T0)**4)*dA
+                Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
                 Fmap_total = Ftotal_*weight
                 Ft = np.sum(Fmap_total, axis = 1)
                 
