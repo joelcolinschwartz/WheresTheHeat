@@ -113,9 +113,80 @@ class parcel(object):
 
 
     def _period_calc(self):
-        orb_per = 2.0*pi*(((self.a**3.0)/(self.Mstar*parcel.grav_const))**0.5)
-        rot_per = orb_per*((1-self.e)**1.5)*((1+self.e)**(-0.5))
-        return orb_per,rot_per
+        self.Porb = 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
+        self.Prot = self.Porb*((1-self.eccen)**1.5)*((1+self.eccen)**(-0.5))
+        return
+    
+    def _kepler_calcs(self):
+        """Calculates orbital separation (between planet and its star) as a function of time
+            and saves it in __init_.
+            Used in calculating incident flux.
+            
+            Note
+            ----
+            The fitter class calls this for an initial time array, changes the time array, then calls
+            it's own radius function to get these quantities for an input time array.
+            
+            It works for now but it's buggy. Might want to review this interaction.
+            
+            
+            Parameters
+            ----------
+            None
+            
+            Uses
+            -------
+            
+            pyasl from PyAstronomy to calculate true anomaly
+            
+            Returns
+            -------
+            
+            t (1D array)
+            Time array in seconds, of length pmax * int(Porb/ 24hrs)*steps.
+            
+            radius (1D array)
+            Same length as t. Orbital separation radius array (as a function of time)
+            
+            ang_vel (1D array)
+            Orbital angular velocity as a function of time.
+            
+            alpha (1D array)
+            Phase angle as a function of time.
+            (90-self.argp) - np.array(TA)*57.2958
+            
+            f (1D array)
+            Planet illuminated fraction
+            0.5*(1-np.cos(alpha*pi/180.0))
+            
+        """
+        ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=180.0,i=90.0,w=self.arg_peri)
+        
+        # Make time array
+        tmax = self.Porb*self.pmaxi
+        Nmin = int(self.pmaxi*self.stepsi)
+        if self.continueOrbit:
+            t = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
+        else:
+            t = np.linspace(0,tmax,num=Nmin+1)
+        
+        radius = ke.radius(t)
+        vel = ke.xyzVel(t)
+        abs_vel = (vel[:,0]**2.0 + vel[:,1]**2.0 + vel[:,2]**2.0)**0.5
+        ang_vel = abs_vel/radius
+        
+        pos,TA = ke.xyzPos(t,getTA=True)
+        
+        # Want 0 at transit and f = 90-w at transit, so alpha = 90-w - f
+        alpha = (90.0-self.arg_peri) - np.degrees(np.array(TA))
+        f = 0.5*(1.0 - np.cos(np.radians(alpha)))
+            
+        self.t = t
+        self.radius = radius
+        self.ang_vel = ang_vel
+        self.alpha = alpha
+        self.f = f
+        return
     
 
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
@@ -207,11 +278,11 @@ class parcel(object):
             and tau_rad left blank.              
 
         
-        rotationsPerOrbit : np.ceil(max(self.Porb/self.P),1) 
+        rotationsPerOrbit : np.ceil(max(self.Porb/self.Prot),1)
             
             used for giving the default time lenght for DE
         
-        rotationsPerDay : int(self.P/self.sec_per_day)
+        rotationsPerDay : int(self.Prot/self.sec_per_day)
             
             used for giving the default precision for DE
             
@@ -250,30 +321,30 @@ class parcel(object):
         self.name = name
 
         self.Teff = Teff  # star effective temp
-        self.Rstar = Rstar*parcel.radius_sun  # star radius
-        self.Mstar = Mstar*parcel.mass_sun # star mass
-        self.Rplanet = Rplanet*parcel.radius_jupiter  # planet mass
-        self.a = a*parcel.astro_unit  # semimajor axis
-        self.e = e  # eccentricity
-        self.argp = argp  # angle betwen periatron and transit (degrees)
+        self.Rstar = Rstar*self.radius_sun  # star radius
+        self.Mstar = Mstar*self.mass_sun # star mass
+        self.Rplanet = Rplanet*self.radius_jupiter  # planet mass
+        self.smaxis = a*self.astro_unit  # semimajor axis
+        self.eccen = e  # eccentricity
+        self.arg_peri = argp  # angle betwen periastron and transit (degrees)
         
-        self.A = A  # planet Bond albedo
+        self.bondA = A  # planet Bond albedo
 
         if motions == 'calc':
-            self.Porb,self.P = _period_calc()
-            self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
+            self._period_calc()
+            self.wadv = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
         elif motions == 'per':
             self.Porb = orbval*sec_per_day
-            self.P = rotval*sec_per_day
-            self.wadv = (2.0*pi/self.P) - (2.0*pi/self.Porb)
+            self.Prot = rotval*sec_per_day
+            self.wadv = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
         elif motions == 'freq':  ## DO THESE NEED 'sec_per_day' MULTIPLIED?
             self.Porb = (2.0*pi/orbval)
-            self.P = (2.0*pi/rotval)
+            self.Prot = (2.0*pi/rotval)
             self.wadv = rotval - orbval
 
-        self.T0 = Teff*((1-A)**0.25)*((self.Rstar/(self.a*(1-self.e)))**0.5)
+        self.T0 = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
 
-        if self.e == 0:
+        if self.eccen == 0:
             self.epsilon = epsilon
             if self.wadv == 0:
                 self.tau_rad = 0
@@ -282,6 +353,20 @@ class parcel(object):
         else:
             self.tau_rad = tau_rad*3600.0  # Because input tau_rad is in hours(?)
             self.epsilon = abs(self.wadv)*tau_rad
+        
+        # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
+        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1)) #used for giving the default time length for DE
+        self.pmax = pmax
+        self.steps = steps
+        self.pmaxi = self.pmax ###JCS num. of orb. periods  #number of rotational periods we will integrate for
+        self.stepsi = self.steps * self.rotationsPerOrbit ###JCS steps per orbit  #steps per rotational period
+        
+        ### JCS Things - want to make these automatic eventually.
+        self.again_Tmap = again_Tmap
+        self.again_t = again_t
+        self.continueOrbit = continueOrbit
+
+        self._kepler_calcs()
 
         
 
@@ -332,35 +417,7 @@ class parcel(object):
 ##                self.tau_rad = np.abs(self.epsilon/self.wadv)
         
         
-        #PRE-CALCULATED FUNCTIONS 
-        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.P,1)) #used for giving the default time lenght for DE
-        if self.P == np.inf:
-            self.rotationsPerDay = 1
-        else:
-            self.rotationsPerDay = int(max(self.P/self.sec_per_day,1)) #used for giving the default precision for DE  ###JCS: Not needed anymore
-        self.pmax = pmax
-        self.steps = steps
-        self.pmaxi = self.pmax ###JCS num. of orb. periods  #* self.rotationsPerOrbit #number of rotational periods we will integrate for 
-        self.stepsi = self.steps * self.rotationsPerOrbit ###JCS steps per orbit  #* self.rotationsPerDay #steps per rotational period 
-
-        ###JCS Things
-        self.again_Tmap = again_Tmap
-        self.again_t = again_t
-        self.continueOrbit = continueOrbit
-
-        
-        t, radius, ang_vel, alpha, f = self.radiuss() 
-        
-
-        self.t = t    
-        self.radius = radius
-        self.ang_vel = ang_vel
-        self.alpha = alpha
-        self.f = f
-        
-        
         # we're not fitting, keeping time aray to default
-        self.dayss = self.t*(np.abs(self.wadv))/(2*pi)  ## WHAT IS THIS ONE??
         self.NSIDE = NSIDE
         
         
@@ -394,16 +451,15 @@ class parcel(object):
                     tau_rad = {12} hrs (radiative time scale)
                     epsilon = {13} dimensionless circulation efficeincy param
                     default rotationsPerOrbit = {14} #used for giving the default time lenght for DE
-                    default rotationsPerDay = {15} #used for giving the default precision for DE
                     **** all of these are converted to SI units but they need 
                     to be entered in the units mentioned here ***
-                    """.format (self.name, self.Teff, self.Rstar/parcel.radius_sun, self.Rplanet/parcel.radius_sun,
-                                self.a/parcel.astro_unit, self.e, self.argp,
-                                self.A,
-                                self.P/parcel.sec_per_day, self.Porb/parcel.sec_per_day,
-                                self.wadv*self.P/ (2*pi),
+                    """.format (self.name, self.Teff, self.Rstar/self.radius_sun, self.Rplanet/self.radius_sun,
+                                self.smaxis/self.astro_unit, self.eccen, self.arg_peri,
+                                self.bondA,
+                                self.Prot/self.sec_per_day, self.Porb/self.sec_per_day,
+                                self.wadv*self.Prot/ (2*pi),
                                 self.T0, self.tau_rad/ 3600.0, 
-                                self.epsilon, self.rotationsPerOrbit, self.rotationsPerDay ))
+                                self.epsilon, self.rotationsPerOrbit))
                                 
      
     """ FUNCTIONS FOR DEFINING THE PLANET CONDITIONS, STELLAR FLUX """
@@ -532,89 +588,6 @@ class parcel(object):
     """FUNCTIONS FOR DEFINING THE COORDINATE SYSTEM AND MOVEMENT AS A FUNCTION OF TIME """
     """::: they all use module pyasl from PyAstronomy ::: """
     
-    def radiuss(self):
-
-        """Calculates orbital separation (between planet and its star) as a function of time
-        and saves it in __init_.
-        Used in calculating incident flux.
-
-        Note
-        ----
-             The fitter class calls this for an initial time array, changes the time array, then calls
-             it's own radius function to get these quantities for an input time array.
-             
-             It works for now but it's buggy. Might want to review this interaction.
-             
-    
-        Parameters
-        ----------
-            None
-
-        Uses
-        -------
-            
-            pyasl from PyAstronomy to calculate true anomaly
-            
-        Returns
-        -------
-            
-                t (1D array)
-                    Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps. 
-                    
-                radius (1D array)
-                    Same lenght as t. Orbital separation radius array (as a function of time) 
-                    
-                ang_vel (1D array)
-                    Orbital angular velocity as a function of time.
-                    
-                alpha (1D array)
-                    Phase angle as a function of time.
-                    (90-self.argp) - np.array(TA)*57.2958
-                    
-                f (1D array)
-                    Planet illuminated fraction
-                    0.5*(1-np.cos(alpha*pi/180.0))
-
-            """   
-        pmaxi = self.pmaxi
-        stepsi = self.stepsi
-        
-        ke = pyasl.KeplerEllipse(self.a, self.Porb, e=self.e, Omega=180., i=90.0, w=self.argp)
-
-        # Get a time axis
-
-
-        ###JCS print('regular time')
-        tmax = self.Porb*pmaxi  ###JCS: Changed to Porb since time should be measured relative to orbit
-        Nmin = int(pmaxi*stepsi)
-        if self.continueOrbit == True:
-            t = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
-        else:
-            t = np.linspace(0,tmax,num=Nmin+1)
-        
-        #t = self.t... should i change this or leave it?
-            
-        
-            
-
-        radius = ke.radius(t)
-        
-        vel = ke.xyzVel(t)
-        absvel = np.sqrt(vel[:,0]**2+vel[:,1]**2+vel[:,2]**2)
-        ang_vel = absvel/ radius
-        
-        pos, TA = ke.xyzPos(t,getTA = True)
-        
-        # i want this to be 0 at transit. f = 90-w at transit so alpha = 90-w - f
-        alpha = (90-self.argp) - np.array(TA)*57.2958
-        
-        f = 0.5*(1-np.cos(alpha*pi/180.0))
-        #f = pyasl.lambertPhaseFunction(alpha)
-        
-        
-        return t, radius, ang_vel, alpha, f
-
-    
     def SSP(self):
 
         """
@@ -659,7 +632,7 @@ class parcel(object):
         
         t = self.t
         'z0= orbital position at t = 0'
-        #z0=self.argp*pi/180
+        #z0=self.arg_peri*pi/180
         if self.continueOrbit == True:
             z0 = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
         else:
@@ -667,7 +640,7 @@ class parcel(object):
         'orbital phase'
         zt = np.empty(len(self.t))
         deltat = t[1::]-t[:-1:]
-        #deltat = (self.P*1.0)/(stepsi*1.0)
+        #deltat = (self.Prot*1.0)/(stepsi*1.0)
         zt[0]=z0
         ###JCS  for i in range(1,len(self.t)):  
         ###JCS      zt[i]= zt[i-1]+self.ang_vel[i-1]*deltat[i-1]
@@ -678,12 +651,12 @@ class parcel(object):
         ###JCS### SSP =(zt-((self.wadv)*t))%(2*pi)# -((self.wadv*t)/(2*pi)).astype(int)*2*pi)-
         #(t/self.Porb).astype(int)*2*pi)
 
-        SSP = (zt - ((2.0*pi/self.P)*t)) % (2.0*pi)  ###JCS: Trying w_rot instead because w_adv already includes w_orb in it.
+        SSP = (zt - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: Trying w_rot instead because w_adv already includes w_orb in it.
         
         ###JCS SOP = (((-self.alpha[0]+180)*pi/180)-
         ###JCS         ((self.wadv)*t)%(2*pi))#-((self.wadv*t)/(2*pi)).astype(int)*2*pi))
         
-        SOP = (pi - ((2.0*pi/self.P)*t)) % (2.0*pi)  ###JCS: (-w_rot * t) + pi, to get anti-SSP at t=0
+        SOP = (pi - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: (-w_rot * t) + pi, to get anti-SSP at t=0
         
         #SOP = SSP + ((-alpha+180)*pi/180)
         return t, zt, SSP, SOP
@@ -749,7 +722,7 @@ class parcel(object):
  
         #TIME
         Nmin = len(self.t) #int((pmaxi)*stepsi)
-        #tmax = self.P*pmaxi
+        #tmax = self.Prot*pmaxi
         t = self.t
         
         
@@ -782,10 +755,10 @@ class parcel(object):
         
         
         #CREATE THE COORDINATE ARRAY. THERE'S 2 CASES: CIRCULAR ORBIT AND ECCENTRIC ORBIT    
-        if self.e == 0.0:
+        if self.eccen == 0.0:
             t, zt, SSP, SOP = self.SSP()
             "don't need deltaphi here but its good to know what it is"
-            #deltaphi = (2*pi/self.stepsi)* self.wadv/(2*pi/self.P)
+            #deltaphi = (2*pi/self.stepsi)* self.wadv/(2*pi/self.Prot)
             d[:,:,1]= (phis)+(SSP.reshape(-1,1))*(np.sign(self.wadv))
             
             #+(deltaphi* np.array(range(0,Nmin)).reshape(-1,1)))%(2*pi) 
@@ -794,7 +767,7 @@ class parcel(object):
            
         else:
             "don't need deltaphi here"
-            #deltaphi = (2*pi/stepsi)* self.wadv/(2*pi/self.P)
+            #deltaphi = (2*pi/stepsi)* self.wadv/(2*pi/self.Prot)
             t, zt, SSP, SOP = self.SSP()
             #d[:,:,1]= (phis)+ ((zt.reshape(-1,1))*(np.sign(self.wadv)))%(2*pi)            
             
@@ -998,16 +971,16 @@ class parcel(object):
             d, Fweight = self.illum() 
             
             
-            if self.e == 0.0:
+            if self.eccen == 0.0:
                 
                     
                     if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
                         
-                        #d[:,:,2] = (((1-self.A)*Fweight)/self.stef_boltz)**(0.25)
-                        d[:,:,2] = (((1-self.A)*Fweight))**(0.25)
+                        #d[:,:,2] = (((1-self.bondA)*Fweight)/self.stef_boltz)**(0.25)
+                        d[:,:,2] = (((1-self.bondA)*Fweight))**(0.25)
                     else:
                         'changed this to work with arbitrary time'
-                        #deltaphi = (2*pi/stepsi) * self.wadv/(2*pi/self.P) #(i don't think wadv is important in this case)
+                        #deltaphi = (2*pi/stepsi) * self.wadv/(2*pi/self.Prot) #(i don't think wadv is important in this case)
                         deltaphi = np.abs(((d[1::,:,1]-d[0:-1:,:,1]))%(-2*pi))
 
                         
@@ -1036,24 +1009,24 @@ class parcel(object):
             else:
                     
                         
-                    #parcel.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
+                    #self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
                     'normalized flux -- (minimum radius/ radius(t))**2'   
                     Fstar = (self.Finc().reshape(-1,1)) #*Fweight
                  
-                    F = Fstar/(parcel.stef_boltz*self.Teff**4*(self.Rstar/(self.a*(1-self.e)))**2)*Fweight
-                    #F = ((self.a*(1-self.e)/self.radius(pmax, steps)[1])**2)
+                    F = Fstar/(self.stef_boltz*self.Teff**4*(self.Rstar/(self.smaxis*(1-self.eccen)))**2)*Fweight
+                    #F = ((self.smaxis*(1-self.eccen)/self.radius(pmax, steps)[1])**2)
                     
                     if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
                         
-                        d[:,:,2] = (((1-self.A)*F)/self.stef_boltz)**(0.25)
+                        d[:,:,2] = (((1-self.bondA)*F)/self.stef_boltz)**(0.25)
                 
                     else:
                         "deltat will have to be changed for use in fitting"
-                        #deltat = self.P/stepsi
+                        #deltat = self.Prot/stepsi
                         deltat = t[1::]-t[:-1:]
                         
                         deltat_ = deltat/self.tau_rad
-                        wrot = (2*pi/self.P)* self.wadv/(2*pi/self.P)                   
+                        wrot = (2*pi/self.Prot)* self.wadv/(2*pi/self.Prot)
                         deltaphi = wrot*deltat 
                     
                         for i in range(1,len(t)):
@@ -1479,7 +1452,7 @@ class parcel(object):
 
         """
         
-        #tmax = self.P*pmax
+        #tmax = self.Prot*pmax
         #Nmin = int((pmax)*300)
         #deltat = tmax/Nmin
         pmaxi = self.pmaxi
@@ -1777,7 +1750,7 @@ class fitter (parcel):
 
         Note
         ----
-             Exactly like the parcel.radiuss function but i had to redefine it for use in
+             Exactly like the parcel._kepler_calcs function but i had to redefine it for use in
              recalculating the orbital positions to reflect the updated time array.
              
     
@@ -1805,7 +1778,7 @@ class fitter (parcel):
                     
                 alpha (1D array)
                     Phase angle as a function of time.
-                    (90-self.argp) - np.array(TA)*57.2958
+                    (90-self.arg_peri) - np.array(TA)*57.2958
                     
                 f (1D array)
                     Planet illuminated fraction
@@ -1814,7 +1787,7 @@ class fitter (parcel):
         """   
         
         
-        ke = pyasl.KeplerEllipse(self.a, self.Porb, e=self.e, Omega=180., i=90.0, w=self.argp)
+        ke = pyasl.KeplerEllipse(self.smaxis, self.Porb, e=self.eccen, Omega=180., i=90.0, w=self.arg_peri)
 
         # Get a time axis
 
@@ -1830,7 +1803,7 @@ class fitter (parcel):
         pos, TA = ke.xyzPos(t,getTA = True)
         
         # i want this to be 0 at transit. f = 90-w at transit so alpha = 90-w - f
-        alpha = (90-self.argp) - np.array(TA)*57.2958
+        alpha = (90-self.arg_peri) - np.array(TA)*57.2958
         
         f = 0.5*(1-np.cos(alpha*pi/180.0))
         
