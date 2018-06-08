@@ -367,9 +367,11 @@ class parcel(object):
         self.continueOrbit = continueOrbit
 
         self._kepler_calcs()
-
         
-
+        self.NSIDE = NSIDE
+        self.thetas,self.phis = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
+        
+        
         #####  #####
         
 ##        if Porb <= 0.0:
@@ -415,20 +417,16 @@ class parcel(object):
 ##            else:
 ##                self.epsilon = epsilon
 ##                self.tau_rad = np.abs(self.epsilon/self.wadv)
-        
-        
-        # we're not fitting, keeping time aray to default
-        self.NSIDE = NSIDE
-        
-        
-        #POSITIONS
-        coords =np.empty(((hp.nside2npix(self.NSIDE)),2))
-        for i in range(hp.nside2npix(self.NSIDE)):
-            coords[i,:]=(np.array(hp.pix2ang(self.NSIDE, i)))
-        self.phis = coords[:,1]
-        self.thetas = coords[:,0]
-        
-        
+#
+#        # we're not fitting, keeping time aray to default
+#        self.NSIDE = NSIDE
+#
+#        #POSITIONS
+#        coords =np.empty(((hp.nside2npix(self.NSIDE)),2))
+#        for i in range(hp.nside2npix(self.NSIDE)):
+#            coords[i,:]=(np.array(hp.pix2ang(self.NSIDE, i)))
+#        self.phis = coords[:,1]
+#        self.thetas = coords[:,0]
        
     
     def print_stuff(self):
