@@ -489,7 +489,7 @@ class parcel(object):
     
 
     
-    def Fstar(self, wavelength = 8.0):
+    def Fstar(self,microns=8.0):
 
         """Calculates total flux emmitted by the star and wavelength dependent flux.
         
@@ -517,16 +517,17 @@ class parcel(object):
                 Fwv (float)
                     Flux emmitted at the specified wavelength.
 
-            """
-        wv = wavelength * 10**(-6) #wavelength was in micrometers, it's now in meters
-        F = self.stef_boltz*self.Teff**4*pi*self.Rstar**2
-        Fwv = ((2*self.planck*self.speed_light**2/wv**5)*(1/(np.e**((self.planck*self.speed_light)/
-                (wv*self.boltz*self.Teff))-1))*pi*self.Rstar**2 )
-        return F, Fwv
+        """
+        total_blackbody = self.stef_boltz*(self.Teff**4)
+        wavelength = microns*(10**(-6))  # microns to meters
+        xpon = self.planck*self.speed_light/(wavelength*self.boltz*self.Teff)
+        ## So total and wave units match, leading "pi" is from integral over solid angle.
+        wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
+        
+        return total_blackbody*(4.0*pi*(self.Rstar**2)),wave_blackbody*(4.0*pi*(self.Rstar**2))
         
         
     def Finc(self):
-                
         """Total (all wavelengths) flux incident on substellar point as 
         a function of time (position in the orbit).
         
@@ -549,38 +550,37 @@ class parcel(object):
                     Theoretical total flux incident on substellar point at each moment on time;
                     lenght pmax * int(Porb/ 24hrs)*steps. 
 
-            """  
-
+        """
+        ## Only scales sigma*T^4, may need to adjust later.
+        return self.stef_boltz*(self.Teff**4)*((self.Rstar/self.radius)**2)
         
-        return self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius))**2
-        
-    def Finc_hemi(self):
-        
-        """Energy incident on the lighted hemisphere of planet. Used for nothing, actually.
+#    def Finc_hemi(self):
+#
+#        """Energy incident on the lighted hemisphere of planet. Used for nothing, actually.
+#
+#
+#        Parameters
+#        ----------
+#            None
+#
+#        Calls
+#        -------
+#
+#            self.Finc(pmax, steps) to get flux incident on the substellar point.
+#
+#        Returns
+#        -------
+#
+#                Finc_hemi (1D array)
+#                    Theoretical total flux incident on planet at each moment on time;
+#                    lenght pmax * int(Porb/ 24hrs)*steps.
+#
+#            """
+#
+#        # Einc = Finc* integral(phi: 0->2pi, theta: 0->pi/2) rp^2*cos(theta)sin(theta) dtheta dphi
+#        # ---- integral overplanet coordinates
+#        return self.Finc()*pi*self.Rplanet**2
 
-    
-        Parameters
-        ----------
-            None
-
-        Calls
-        -------
-            
-            self.Finc(pmax, steps) to get flux incident on the substellar point.
-            
-        Returns
-        -------
-            
-                Finc_hemi (1D array)
-                    Theoretical total flux incident on planet at each moment on time;
-                    lenght pmax * int(Porb/ 24hrs)*steps. 
-
-            """           
-
-        # Einc = Finc* integral(phi: 0->2pi, theta: 0->pi/2) rp^2*cos(theta)sin(theta) dtheta dphi
-        # ---- integral overplanet coordinates
-        return self.Finc()*pi*self.Rplanet**2
-            
     
     
     """FUNCTIONS FOR DEFINING THE COORDINATE SYSTEM AND MOVEMENT AS A FUNCTION OF TIME """
