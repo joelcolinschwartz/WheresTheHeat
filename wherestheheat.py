@@ -245,7 +245,82 @@ class parcel(object):
         self.SOP = SOP
         return
     
-
+    def illum(self) :
+        """Creates coordinate matrix wrt substellar point at each point in time.
+            Creates initial temperature array.
+            Calculates weight function to be applied to stellar flux to obtain
+            incident flux a each location on the planet, at each point in time.
+            
+            Note
+            ----
+            DEPENDS ON WADV; CAN'T BE STORED IN __init__
+            In places where initial temperature is 0, we replace T = 0 with T = 0.1 to avoid overflows.
+            At t = 0, the planet is at periastron and the substellar point
+            is located at theta = Pi/2, phi = 0
+            
+            Parameters
+            ----------
+            None
+            
+            Calls
+            -------
+            
+            self.SSP(pmax, steps) to get:
+            
+            t
+            1D time array of lenght pmax * int(Porb/ 24hrs)*steps;
+            in seconds
+            
+            SSP
+            1D array, same lenght as t. Gives coordinate of substellar point relative
+            to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+            Used to rotate the coordinate array array as a function of time .
+            
+            Returns
+            -------
+            
+            d
+            3D position and temperature array;
+            
+            shape = (len(time), NPIX, 3)
+            
+            d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
+            *remains constant as a function of time
+            
+            d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
+            
+            
+            d[:,:,2] = starting temperature array
+            
+            Fweight
+            2-D array that represents the weight applied to the stellar flux
+            at each location on the planet to obtain incident flux at each moment in time.
+            --- shape is (lenght time, NPIX)
+            
+            
+        """
+        if self.continueOrbit:
+            T = self.again_Tmap
+        else:
+            the_low_case = (np.sin(self.thetas)*(np.cos(self.phis) + np.absolute(np.cos(self.phis)))/2.0)**0.25  # Need **0.25 outside EVERYTHING
+            the_high_case = (np.sin(self.thetas)/pi)**0.25
+            the_scaler = (self.epsilon**1.652)/(1.828 + self.epsilon**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
+            T = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
+            T[T<0.1] = 0.1
+        
+        # Original array has shape (time steps, num. of pixels, 3) where 3 is lat-long-temp.
+        # Try to simplify: lats never change, keep longs and temps apart.
+        phis_evolve = self.phis[np.newaxis,:] + (self.SSP[:,np.newaxis]*np.sign(self.wadv))
+        T_evolve = np.zeros(phis_evolve.shape)
+        T_evolve[0,:] += T
+        
+        # Called "Fweight" before.
+        illumination = 0.5*(np.cos(phis_evolve) + np.absolute(np.cos(phis_evolve)))*np.sin(self.thetas)
+        
+        ### Pick up here with what to tie to self and what to return. ###
+        return
+    
+    
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
                  Rplanet = 1.0870, a = 0.05, 
                  e = 0.1, argp = 0,
@@ -643,79 +718,79 @@ class parcel(object):
     """FUNCTIONS FOR DEFINING THE COORDINATE SYSTEM AND MOVEMENT AS A FUNCTION OF TIME """
     """::: they all use module pyasl from PyAstronomy ::: """
     
-    def SSP(self):
+#    def SSP(self):
+#
+#        """
+#
+#        Calculates coordinates of substellar point wrt to the location of the
+#        substellar point at periastron (theta = Pi/2, phi =0).
+#        Used to rotate the coordinate array array as a function of time .
+#
+#        Also calculates coordinates of subobserver location wrt subobserver location at periastron.
+#
+#        Note
+#        ----
+#             DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried.
+#
+#        Parameters
+#        ----------
+#            None
+#
+#
+#
+#        Returns
+#        -------
+#
+#                t (1D array)
+#                    Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps.
+#
+#                zt (1D array)
+#                    Same lenght as t. Cumulative orbital angular displacement.
+#
+#                SSP (1D array)
+#                    Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
+#                    Gives coordinate of substellar point relative
+#                    to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+#
+#
+#                SOP (1D array)
+#                    Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
+#
+#            """
+#
+#
+#
+#        t = self.t
+#        'z0= orbital position at t = 0'
+#        #z0=self.arg_peri*pi/180
+#        if self.continueOrbit == True:
+#            z0 = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
+#        else:
+#            z0=0
+#        'orbital phase'
+#        zt = np.empty(len(self.t))
+#        deltat = t[1::]-t[:-1:]
+#        #deltat = (self.Prot*1.0)/(stepsi*1.0)
+#        zt[0]=z0
+#        ###JCS  for i in range(1,len(self.t)):
+#        ###JCS      zt[i]= zt[i-1]+self.ang_vel[i-1]*deltat[i-1]
+#
+#        zt[1:] = zt[0] + np.cumsum(self.ang_vel[:-1]*deltat)  ###JCS: At least avoids 1 for-loop
+#
+#        #added the mod 2pi removed the rest of the trying to mod out by pi stuff
+#        ###JCS### SSP =(zt-((self.wadv)*t))%(2*pi)# -((self.wadv*t)/(2*pi)).astype(int)*2*pi)-
+#        #(t/self.Porb).astype(int)*2*pi)
+#
+#        SSP = (zt - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: Trying w_rot instead because w_adv already includes w_orb in it.
+#
+#        ###JCS SOP = (((-self.alpha[0]+180)*pi/180)-
+#        ###JCS         ((self.wadv)*t)%(2*pi))#-((self.wadv*t)/(2*pi)).astype(int)*2*pi))
+#
+#        SOP = (pi - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: (-w_rot * t) + pi, to get anti-SSP at t=0
+#
+#        #SOP = SSP + ((-alpha+180)*pi/180)
+#        return t, zt, SSP, SOP
 
-        """
-             
-        Calculates coordinates of substellar point wrt to the location of the 
-        substellar point at periastron (theta = Pi/2, phi =0). 
-        Used to rotate the coordinate array array as a function of time .
-        
-        Also calculates coordinates of subobserver location wrt subobserver location at periastron.
-        
-        Note
-        ----
-             DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried. 
-    
-        Parameters
-        ----------
-            None
-
-        
-            
-        Returns
-        -------
-            
-                t (1D array)
-                    Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps. 
-                    
-                zt (1D array)
-                    Same lenght as t. Cumulative orbital angular displacement. 
-                    
-                SSP (1D array)
-                    Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
-                    Gives coordinate of substellar point relative 
-                    to the substellar point at periastron (located at theta = Pi/2, phi = 0).
-                    
-                
-                SOP (1D array)
-                    Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
-    
-            """
-        
-        
-        
-        t = self.t
-        'z0= orbital position at t = 0'
-        #z0=self.arg_peri*pi/180
-        if self.continueOrbit == True:
-            z0 = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
-        else:
-            z0=0
-        'orbital phase'
-        zt = np.empty(len(self.t))
-        deltat = t[1::]-t[:-1:]
-        #deltat = (self.Prot*1.0)/(stepsi*1.0)
-        zt[0]=z0
-        ###JCS  for i in range(1,len(self.t)):  
-        ###JCS      zt[i]= zt[i-1]+self.ang_vel[i-1]*deltat[i-1]
-
-        zt[1:] = zt[0] + np.cumsum(self.ang_vel[:-1]*deltat)  ###JCS: At least avoids 1 for-loop
-        
-        #added the mod 2pi removed the rest of the trying to mod out by pi stuff
-        ###JCS### SSP =(zt-((self.wadv)*t))%(2*pi)# -((self.wadv*t)/(2*pi)).astype(int)*2*pi)-
-        #(t/self.Porb).astype(int)*2*pi)
-
-        SSP = (zt - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: Trying w_rot instead because w_adv already includes w_orb in it.
-        
-        ###JCS SOP = (((-self.alpha[0]+180)*pi/180)-
-        ###JCS         ((self.wadv)*t)%(2*pi))#-((self.wadv*t)/(2*pi)).astype(int)*2*pi))
-        
-        SOP = (pi - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: (-w_rot * t) + pi, to get anti-SSP at t=0
-        
-        #SOP = SSP + ((-alpha+180)*pi/180)
-        return t, zt, SSP, SOP
-    
 
     """ILLUMINATION AND VISIBILITY """    
     
