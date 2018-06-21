@@ -188,6 +188,63 @@ class parcel(object):
         self.f = f
         return
     
+    def _phases_SOpoints(self):
+        """
+            Calculates coordinates of substellar point wrt to the location of the
+            substellar point at periastron (theta = Pi/2, phi =0).
+            Used to rotate the coordinate array array as a function of time .
+            
+            Also calculates coordinates of subobserver location wrt subobserver location at periastron.
+            
+            Note
+            ----
+            DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried.
+            
+            Parameters
+            ----------
+            None
+            
+            
+            
+            Returns
+            -------
+            
+            t (1D array)
+            Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps.
+            
+            zt (1D array)
+            Same lenght as t. Cumulative orbital angular displacement.
+            
+            SSP (1D array)
+            Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
+            Gives coordinate of substellar point relative
+            to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+            
+            
+            SOP (1D array)
+            Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
+            
+        """
+        orbital_phase = np.zeros(self.t.shape)
+        if self.continueOrbit:
+            orb_pos_zero = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
+        else:
+            orb_pos_zero = 0
+        orb_phase[0] = orb_pos_zero
+        
+        delta_t = self.t[1:] - self.t[:-1]
+        orb_phase[1:] = orb_pos_zero + np.cumsum(self.ang_vel[:-1]*delta_t)
+        
+        # Using w_rot because w_adv includes w_orb- Yes?
+        SSP = (orb_phase - ((2.0*pi/self.Prot)*self.t)) % (2.0*pi)
+        # To get anti-SSP at t=0, do (-w_rot * t) + pi
+        SOP = (pi - ((2.0*pi/self.Prot)*self.t)) % (2.0*pi)
+        
+        self.orb_phase = orb_phase
+        self.SSP = SSP
+        self.SOP = SOP
+        return
+    
 
     def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
                  Rplanet = 1.0870, a = 0.05, 
