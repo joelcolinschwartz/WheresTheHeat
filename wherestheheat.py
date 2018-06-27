@@ -246,7 +246,7 @@ class parcel(object):
         self.SOP = SOP
         return
     
-    def illum(self) :
+    def _phiT_visillum(self):
         """Creates coordinate matrix wrt substellar point at each point in time.
             Creates initial temperature array.
             Calculates weight function to be applied to stellar flux to obtain
@@ -298,6 +298,12 @@ class parcel(object):
             at each location on the planet to obtain incident flux at each moment in time.
             --- shape is (lenght time, NPIX)
             
+            coordsSOP (2D array)
+            coordinates relative to the suborserver point
+            
+            weight (2D array )
+            visibility array to be applied to flux array in coordinates wrt SSP
+            (shape is (#time steps, NPIX))
             
         """
         if self.continueOrbit:
@@ -314,14 +320,16 @@ class parcel(object):
         phis_evolve = self.phis[np.newaxis,:] + (self.SSP[:,np.newaxis]*np.sign(self.wadv))
         Tvals_evolve = np.zeros(phis_evolve.shape)
         Tvals_evolve[0,:] += Tvals
+        phis_relSOP = self.phis_evolve - np.radians(180.0-self.alpha[:,np.newaxis]) # For making visibility
         
         # Called "Fweight" before.
         illumination = 0.5*(np.cos(phis_evolve) + np.absolute(np.cos(phis_evolve)))*np.sin(self.thetas)
+        visibility = 0.5*(np.cos(phis_relSOP) + np.absolute(np.cos(phis_relSOP)))*np.sin(self.thetas)
         
-        # What binds to self?
         self.phis_evolve = phis_evolve
         self.Tvals_evolve = Tvals_evolve
         self.illumination = illumination
+        self.visibility = visibility
         return
     
     
@@ -507,6 +515,9 @@ class parcel(object):
         self.NSIDE = NSIDE
         self.thetas,self.phis = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
         
+        self._phases_SOpoints()
+        self._phiT_visillum()
+        return
         
         #####  #####
         
@@ -919,125 +930,123 @@ class parcel(object):
     
     
         
-    def visibility(self, d = None, TEST = False):
-        
-        """Calculates the visibility of each gas parcel on the planet, 
-        i.e. how much flux is recieved by an 
-        observer from each location on the planet as a function of time.
+#    def visibility(self, d = None, TEST = False):
+#
+#        """Calculates the visibility of each gas parcel on the planet,
+#        i.e. how much flux is recieved by an
+#        observer from each location on the planet as a function of time.
+#
+#        Note
+#        ----
+#            DEPENDS ON WADV; CAN'T BE STORED IN INIT
+#            weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)
+#
+#
+#        Parameters
+#        ----------
+#
+#            d (3D array, optional)
+#                position and temperature array; is provided as an argument by self.Fobs;
+#                if not provided, self.illum() will be called and the array d will be calculated
+#
+#                    shape = (len(time), NPIX, 3)
+#
+#                    d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
+#                    *remains constant as a function of time
+#
+#                    d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
+#
+#                    d[:,:,2] = starting temperature array
+#
+#                    EX:
+#                    d[458,234,1] means: position wrt to substellar point of parcel # 234 at timestep 458
+#
+#            TEST (bool)
+#                Usually False
+#
+#        Calls
+#        -------
+#
+#            if d is None, calls self.illum() to get d.
+#
+#
+#        Returns
+#        -------
+#
+#            if TEST = False
+#
+#                weight
+#                    visibility array to be applied to flux array in coordinates wrt SSP
+#
+#            if TEST = True
+#
+#                d (3D array)
+#                    coordinates wrt SSP and temperature aray
+#
+#                coordsSOP (2D array)
+#                    coordinates relative to the suborserver point
+#
+#                weight (2D array )
+#                    visibility array to be applied to flux array in coordinates wrt SSP
+#                    (shape is (#time steps, NPIX))
+#
+#
+#            """
+#
+#        #if d is None:
+#        #    try :
+#        #        d = self.d
+#        #    except AttributeError:
+#        #        d, Fweight = self.illum()
+#
+#        if d is None:
+#            d, Fweight = self.illum()
+#            try:
+#                d = d[self.stitch_point::,:,:]
+#
+#
+#            except AttributeError:
+#
+#                d = d
+#
+#        else:
+#
+#            d = d
+#
+#        #t, zt, SSP, SOP = self.SSP(pmax, steps)
+###        t,zt,SSP,SOP = self.SSP()  ###JCS: Will need SOP here, naturally.
+###        SOP_longs = np.transpose(np.tile(SOP,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
+###        zt_longs = np.transpose(np.tile(zt,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
+#
+#        phis = d[:,:,1] # location of gas parcel on planet relative to SSP
+#
+#        thetas = d[:,:,0]
+#
+#
+#        try:
+#            alpha = self.alpha[self.stitch_point::]
+#
+#        except AttributeError:
+#            alpha = self.alpha
+#        #coordsSSP = (phis)
+#        coordsSOP = phis - (180.0 - alpha.reshape(-1,1))*pi/180.0  ###JCS: This was already what I was trying to do just below- duh!
+#
+###        coordsSOP = phis - (zt_longs + pi)  ###JCS: Compare SSP ang. to orb. position (zt+pi=0+pi=pi at t=0 so want phi=pi, etc.)
+#
+#        #2#coordsSOP = phis+(zt%(2*pi)).reshape(-1,1)
+#
+#        #coordsSOP = phis+(zt).reshape(-1,1)+(-alpha[0]+180)*pi/180
+#        #coordsSOP = phis - (SOP - SSP).reshape(-1,1)
+#
+#        weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)  ###JCS: Same as version you're familiar with.
+#
+#        "THIS USES RESULT FROM ILLUM... MAYBE THEY CAN BE TOGETHER???"
+#        if TEST :
+#            return d, coordsSOP, weight
+#        else:
+#            return weight
 
-        Note
-        ----
-            DEPENDS ON WADV; CAN'T BE STORED IN INIT
-            weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)
-            
-    
-        Parameters
-        ----------
 
-            d (3D array, optional)
-                position and temperature array; is provided as an argument by self.Fobs; 
-                if not provided, self.illum() will be called and the array d will be calculated 
-                    
-                    shape = (len(time), NPIX, 3)
-                    
-                    d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
-                    *remains constant as a function of time 
-                    
-                    d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
-                    
-                    d[:,:,2] = starting temperature array
-                    
-                    EX: 
-                    d[458,234,1] means: position wrt to substellar point of parcel # 234 at timestep 458
-                    
-            TEST (bool)
-                Usually False     
-        
-        Calls
-        -------
-            
-            if d is None, calls self.illum() to get d.
-                    
-            
-        Returns
-        -------
-            
-            if TEST = False
-                
-                weight 
-                    visibility array to be applied to flux array in coordinates wrt SSP
-                
-            if TEST = True
-
-                d (3D array)     
-                    coordinates wrt SSP and temperature aray
-                
-                coordsSOP (2D array)
-                    coordinates relative to the suborserver point
-                
-                weight (2D array )
-                    visibility array to be applied to flux array in coordinates wrt SSP
-                    (shape is (#time steps, NPIX))
-
-    
-            """        
-       
-        #if d is None:
-        #    try :
-        #        d = self.d
-        #    except AttributeError:
-        #        d, Fweight = self.illum()
-       
-        if d is None:
-            d, Fweight = self.illum()
-            try:
-                d = d[self.stitch_point::,:,:]
-                
-               
-            except AttributeError:
-                
-                d = d
-
-        else: 
-            
-            d = d
-                
-        #t, zt, SSP, SOP = self.SSP(pmax, steps)
-##        t,zt,SSP,SOP = self.SSP()  ###JCS: Will need SOP here, naturally.
-##        SOP_longs = np.transpose(np.tile(SOP,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
-##        zt_longs = np.transpose(np.tile(zt,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
-        
-        phis = d[:,:,1] # location of gas parcel on planet relative to SSP
-        
-        thetas = d[:,:,0]
-        
-        
-        try:
-            alpha = self.alpha[self.stitch_point::]
-            
-        except AttributeError:
-            alpha = self.alpha
-        #coordsSSP = (phis)
-        coordsSOP = phis - (180.0 - alpha.reshape(-1,1))*pi/180.0  ###JCS: This was already what I was trying to do just below- duh!
-
-##        coordsSOP = phis - (zt_longs + pi)  ###JCS: Compare SSP ang. to orb. position (zt+pi=0+pi=pi at t=0 so want phi=pi, etc.)
-        
-        #2#coordsSOP = phis+(zt%(2*pi)).reshape(-1,1)
-        
-        #coordsSOP = phis+(zt).reshape(-1,1)+(-alpha[0]+180)*pi/180
-        #coordsSOP = phis - (SOP - SSP).reshape(-1,1)    
-
-        weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)  ###JCS: Same as version you're familiar with.
-
-        "THIS USES RESULT FROM ILLUM... MAYBE THEY CAN BE TOGETHER???"
-        if TEST :
-            return d, coordsSOP, weight
-        else:
-            return weight
-
-        
-        
-        
     def DE(self):
             
             
