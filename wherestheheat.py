@@ -1216,7 +1216,7 @@ class parcel(object):
 #                    return t, d
 
     
-    def Fleaving(self, wavelength = 8.0, MAP = False):#, TEST = False):
+    def Fleaving(self,microns=8.0, MAP = False):
         """Calculates outgoing planetary flux (Total and wavelength dependant)
         from the temperature values coming from the DE. 
 
@@ -1301,48 +1301,65 @@ class parcel(object):
                     1D array, contains flux (all wavelengths) integrated over planet surface
                     at each moment in time. Again, not super useful unless you're making figures.
    
-            """
-       
-        wv = wavelength*10**(-6)        
+        """
+        self.DE()  # May want to restructure this.
         
-        t, d = self.DE()
+        total_blackbody = self.stef_boltz*((self.Tvals_evolve*self.T0)**4)
+        wavelength = microns*(10**(-6))  # microns to meters
+        xpon = self.planck*self.speed_light/(wavelength*self.boltz*(self.Tvals_evolve*self.T0))
+        ## So total and wave units match, leading "pi" is from integral over solid angle.
+        wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
         
+        unit_area = hp.nside2pixarea(self.NSIDE)*(self.Rplanet**2)
         
-        'Sometimes this has an overflow problem'
+        flux_total = np.sum(total_blackbody*unit_area,axis=1)
+        flux_wave = np.sum(wave_blackbody*unit_area,axis=1)
         
+        return total_blackbody,flux_total,wave_blackbody,flux_wave
         
-        a = (2*self.planck*self.speed_light**2/wv**5)
+        ### ### ###
         
-        b = (self.planck*self.speed_light*10**6)/(wavelength*self.boltz*self.T0)
-
-        Fwv = a* 1/(np.expm1(b/np.array(d[:,:,2])))
-      
-        
-        "Get the flux"
-        dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
-  
-        Fmap_wv = (Fwv *dA)#/Fwvstar
-        
-        Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
-        
-        
-
-        
-        
-            
-        if MAP:
-            Fleavingwv = np.zeros(len(t))
-            Ftotal = np.zeros(len(t))
-            for i in range(len(t)):
-            
-                Fleavingwv[i] = np.sum(Fmap_wv[i,:])
-                Ftotal[i] = np.sum(Ftotal_[i,:])
-            crap, Fmap_wvpix = self.shuffle(d.copy(), Fmap_wv)
-
-            return t, d, Fmap_wv, Fmap_wvpix, Fleavingwv, Ftotal
-            
-        else:
-            return t, d, Fmap_wv
+#
+#        wv = wavelength*10**(-6)
+#
+#        t, d = self.DE()
+#
+#
+#        'Sometimes this has an overflow problem'
+#
+#
+#        a = (2*self.planck*self.speed_light**2/wv**5)
+#
+#        b = (self.planck*self.speed_light*10**6)/(wavelength*self.boltz*self.T0)
+#
+#        Fwv = a* 1/(np.expm1(b/np.array(d[:,:,2])))
+#
+#
+#        "Get the flux"
+#        dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
+#
+#        Fmap_wv = (Fwv *dA)#/Fwvstar
+#
+#        Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
+#
+#
+#
+#
+#
+#
+#        if MAP:
+#            Fleavingwv = np.zeros(len(t))
+#            Ftotal = np.zeros(len(t))
+#            for i in range(len(t)):
+#
+#                Fleavingwv[i] = np.sum(Fmap_wv[i,:])
+#                Ftotal[i] = np.sum(Ftotal_[i,:])
+#            crap, Fmap_wvpix = self.shuffle(d.copy(), Fmap_wv)
+#
+#            return t, d, Fmap_wv, Fmap_wvpix, Fleavingwv, Ftotal
+#
+#        else:
+#            return t, d, Fmap_wv
 
     
     def Fobs(self, wavelength = 8.0, PRINT = False, MAP = False, BOLO = False, HEMISUM = False):  ###JCS: Added 'HEMISUM' 02/15/17
