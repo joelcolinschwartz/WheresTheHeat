@@ -1108,109 +1108,112 @@ class parcel(object):
             else:
                 # This difference is mod -2*pi --> why the negative?
                 delta_phis = np.absolute((self.phis_evolve[1:,:] - self.phis_evolve[:-1,:]) % (-2.0*pi))
+                
                 for i in range(1,len(self.timeval)):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
                     delta_Tvals = (1.0/self.epsilon)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_phis[i-1,:]
                     self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
         else:
-            # Normalized stellar flux, can rework cleaner becasue A LOT cancels.
+            # Normalized stellar flux, can clean up becasue A LOT cancels.
             flux_inc = self.Finc()[:,np.newaxis]
             flux_max = self.stef_boltz*(self.Teff**4)*((self.Rstar/(self.smaxis*(1.0-self.eccen)))**2)
             scaled_illum = (flux_inc/flux_max)*self.illumination
             
-            ### Pick up from here next time- need to check the units carefully in this eccentric part.
+            # Eccentric DE uses t_tilda = t/tau_rad
             if (self.epsilon <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
-                pass
+                self.Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)  # Why divided by stef_boltz before??
             else:
-                pass
-        
-        
+                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.tau_rad
+                
+                for i in range(1,len(self.timeval)):
+                    delta_Tvals = (scaled_illum[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
+                    self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
+                    
+        return
         
         ### ### ###
         
-        
-        
-        #print "Starting DE"
-
-        t = self.timeval
-        #d = self.dstart
-        #Fweight  =self.Fweight
-        
-        d, Fweight = self.illum()
-        
-        
-        if self.eccen == 0.0:
-            
-            
-                if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
-                    
-                    #d[:,:,2] = (((1-self.bondA)*Fweight)/self.stef_boltz)**(0.25)
-                    d[:,:,2] = (((1-self.bondA)*Fweight))**(0.25)
-                else:
-                    'changed this to work with arbitrary time'
-                    #deltaphi = (2*pi/stepsi) * self.wadv/(2*pi/self.Prot) #(i don't think wadv is important in this case)
-                    deltaphi = np.abs(((d[1::,:,1]-d[0:-1:,:,1]))%(-2*pi))
-
-
-                    for i in range(1,len(t)):#phis.shape[2]
-                    
-                        #incoming flux is always the same for a circular orbit F(t)/Fmax = 1
-                        
-                        dT =1.0/self.epsilon*(Fweight[i-1]-(d[i-1,:,2])**4 )*(deltaphi[i-1,:]) #calculate change
-                        
-                        d[i,:,2]= d[i-1,:,2]+ dT #update temperature array
-        
-        
-                #toc = time.time()
-                #print ("Time this took is: " , str(toc-tic), "seconds")
-                
-                try:
-                    return t[self.stitch_point::], d[self.stitch_point::,:,:]
-    
-                except AttributeError:
-                    return t, d
-
-
-            
-             
-            
-        else:
-            
-                
-                #self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
-                'normalized flux -- (minimum radius/ radius(t))**2'
-                Fstar = (self.Finc().reshape(-1,1)) #*Fweight
-             
-                F = Fstar/(self.stef_boltz*self.Teff**4*(self.Rstar/(self.smaxis*(1-self.eccen)))**2)*Fweight
-                #F = ((self.smaxis*(1-self.eccen)/self.radius(pmax, steps)[1])**2)
-                
-                if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
-                    
-                    d[:,:,2] = (((1-self.bondA)*F)/self.stef_boltz)**(0.25)
-        
-                else:
-                    "deltat will have to be changed for use in fitting"
-                    #deltat = self.Prot/stepsi
-                    deltat = t[1::]-t[:-1:]
-                    
-                    deltat_ = deltat/self.tau_rad
-                    wrot = (2*pi/self.Prot)* self.wadv/(2*pi/self.Prot)
-                    deltaphi = wrot*deltat
-                
-                    for i in range(1,len(t)):
-                        
-                        
-                            dT =(( F[i-1] - (d[i-1,:,2])**4 )* (deltat_)[i-1])
-                            
-                            d[i,:,2]= d[i-1,:,2]+dT #update temperature array
-
-                        
-                
-                try:
-                    return t[self.stitch_point::], d[self.stitch_point::,:,:]
-                
-                except AttributeError:
-                    return t, d
+#        #print "Starting DE"
+#
+#        t = self.timeval
+#        #d = self.dstart
+#        #Fweight  =self.Fweight
+#
+#        d, Fweight = self.illum()
+#
+#
+#        if self.eccen == 0.0:
+#
+#
+#                if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
+#
+#                    #d[:,:,2] = (((1-self.bondA)*Fweight)/self.stef_boltz)**(0.25)
+#                    d[:,:,2] = (((1-self.bondA)*Fweight))**(0.25)
+#                else:
+#                    'changed this to work with arbitrary time'
+#                    #deltaphi = (2*pi/stepsi) * self.wadv/(2*pi/self.Prot) #(i don't think wadv is important in this case)
+#                    deltaphi = np.abs(((d[1::,:,1]-d[0:-1:,:,1]))%(-2*pi))
+#
+#
+#                    for i in range(1,len(t)):#phis.shape[2]
+#
+#                        #incoming flux is always the same for a circular orbit F(t)/Fmax = 1
+#
+#                        dT =1.0/self.epsilon*(Fweight[i-1]-(d[i-1,:,2])**4 )*(deltaphi[i-1,:]) #calculate change
+#
+#                        d[i,:,2]= d[i-1,:,2]+ dT #update temperature array
+#
+#
+#                #toc = time.time()
+#                #print ("Time this took is: " , str(toc-tic), "seconds")
+#
+#                try:
+#                    return t[self.stitch_point::], d[self.stitch_point::,:,:]
+#
+#                except AttributeError:
+#                    return t, d
+#
+#
+#
+#
+#
+#        else:
+#
+#
+#                #self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
+#                'normalized flux -- (minimum radius/ radius(t))**2'
+#                Fstar = (self.Finc().reshape(-1,1)) #*Fweight
+#
+#                F = Fstar/(self.stef_boltz*self.Teff**4*(self.Rstar/(self.smaxis*(1-self.eccen)))**2)*Fweight
+#                #F = ((self.smaxis*(1-self.eccen)/self.radius(pmax, steps)[1])**2)
+#
+#                if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
+#
+#                    d[:,:,2] = (((1-self.bondA)*F)/self.stef_boltz)**(0.25)
+#
+#                else:
+#                    "deltat will have to be changed for use in fitting"
+#                    #deltat = self.Prot/stepsi
+#                    deltat = t[1::]-t[:-1:]
+#
+#                    deltat_ = deltat/self.tau_rad
+#                    wrot = (2*pi/self.Prot)* self.wadv/(2*pi/self.Prot)
+#                    deltaphi = wrot*deltat
+#
+#                    for i in range(1,len(t)):
+#
+#
+#                            dT =(( F[i-1] - (d[i-1,:,2])**4 )* (deltat_)[i-1])
+#
+#                            d[i,:,2]= d[i-1,:,2]+dT #update temperature array
+#
+#
+#
+#                try:
+#                    return t[self.stitch_point::], d[self.stitch_point::,:,:]
+#
+#                except AttributeError:
+#                    return t, d
 
     
     def Fleaving(self, wavelength = 8.0, MAP = False):#, TEST = False):
