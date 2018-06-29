@@ -1690,128 +1690,169 @@ class parcel(object):
                     #Tdusk = T[i]
             
         return Tmax, Tdawn, Tdusk
+    
+    
+    def _max_temper(self,eps):
+        """Something."""
+        x_0 = 2.9685
+        x_1 = 7.0623
+        x_2 = 1.1756
+        x_3 = -0.2958
+        x_4 = 0.1846
         
-
-
-    def phi_max(self,eps):
+        xpon = -x_2 + (x_3/(1.0 + (x_4*eps)))
+        func = x_0/(1.0 + x_1*(eps**xpon))
+        return np.cos(np.arctan(func))**(0.25)
+    
+    def _dusk_temper(self,eps):
+        """Something."""
+        y_0 = 0.69073
+        y_1 = 7.5534
+    
+        return ((pi**2)*((1.0 + (y_0/eps))**(-8)) + y_1*(eps**(-8/7)))**(-1/8)
+    
+    def _dawn_temper(self,eps):
+        """Something."""
+        return (pi + (3.0*pi/eps)**(4/3))**(-1/4)
+    
+    
+    def Tnorm_MaxDuskDawn(self,epsilon="self"):
+        """Blah blah blah
         
-        """ Finds analytic approximation for location of  Max temperature on the planet
-        for a circular orbit. Location is expressed in local stellar time.
+        Some bozo.
+        
+        """
+        if isinstance(epsilon,(float,int)):
+            eps = epsilon
+        else:
+            eps = self.epsilon
+        
+        Ttilda_max = self._max_temper(eps)
+        Ttilda_dusk = self._dusk_temper(eps)
+        Ttilda_dawn = self._dawn_temper(eps)
+        
+        return Ttilda_max,Ttilda_dusk,Ttilda_dawn
     
 
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
+#    def phi_max(self,eps):
+#
+#        """ Finds analytic approximation for location of  Max temperature on the planet
+#        for a circular orbit. Location is expressed in local stellar time.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        phi (rads)
+#            Longitude at which gas reaches maximum temperature on planet.
+#
+#
+#        """
+#
+#        x0 = 2.9685
+#        x1 = 7.0623
+#        x2 = 1.1756
+#        x3 = -0.2958
+#        x4 = 0.1846
+#        f = x0*(1.0+x1*eps**(-x2+(x3/(1.0+x4*eps))))**(-1.0)
+#        return np.arctan(f)
+#
+#
+#
+#    def Tmax (self,eps):
+#        """ Finds analytic approximation for Max temperature on the planet
+#        for a circular orbit.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        Tmax
+#            Theoretical max temperature on planet in T/T0.
+#
+#        """
+#
+#        return np.cos(self.phi_max(eps))**(0.25)
+#
+#
+#    def Tdusk (self,eps):
+#        """ Finds analytic approximation for temperature at dusk on the planet
+#        for a circular orbit.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        Tdusk
+#            Theoretical temperature at dusk on planet (T/T0.)
+#
+#        """
+#
+#        y0 = 0.69073
+#        y1 = 7.5534
+#        f = (pi**2*(1.0+y0/eps)**(-8.0) + y1*eps**(-8.0/7.0))**(-1.0/8.0)
+#        return f
+#
+#    def Tdawn (self,eps):
+#        """ Finds analytic approximation for temperature at dawn on the planet
+#        for a circular orbit.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        Tdawn
+#            Theoretical temperature at dawn on planet (T/T0.)
+#
+#        """
+#
+#        f = (pi + (3*pi/eps)**(4.0/3.0))**(-0.25)
+#        return f
 
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        phi (rads)
-            Longitude at which gas reaches maximum temperature on planet.
-
-
-        """
-                       
-        x0 = 2.9685
-        x1 = 7.0623
-        x2 = 1.1756
-        x3 = -0.2958
-        x4 = 0.1846
-        f = x0*(1.0+x1*eps**(-x2+(x3/(1.0+x4*eps))))**(-1.0)
-        return np.arctan(f)
-
-
-
-    def Tmax (self,eps):
-        """ Finds analytic approximation for Max temperature on the planet
-        for a circular orbit.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        Tmax
-            Theoretical max temperature on planet in T/T0.
-
-        """
-            
-        return np.cos(self.phi_max(eps))**(0.25)
-
-
-    def Tdusk (self,eps):
-        """ Finds analytic approximation for temperature at dusk on the planet
-        for a circular orbit.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        Tdusk
-            Theoretical temperature at dusk on planet (T/T0.)
-
-        """
-            
-        y0 = 0.69073
-        y1 = 7.5534
-        f = (pi**2*(1.0+y0/eps)**(-8.0) + y1*eps**(-8.0/7.0))**(-1.0/8.0)
-        return f
-
-    def Tdawn (self,eps):
-        """ Finds analytic approximation for temperature at dawn on the planet
-        for a circular orbit.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        Tdawn
-            Theoretical temperature at dawn on planet (T/T0.)
-
-        """
-            
-        f = (pi + (3*pi/eps)**(4.0/3.0))**(-0.25)
-        return f  
-        
     
 class fitter (parcel):
     ''' Subclass of parcel class. The purpose of this is to return flux values suitable for fitting data.
