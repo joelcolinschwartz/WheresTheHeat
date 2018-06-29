@@ -1617,80 +1617,99 @@ class parcel(object):
         
         print("shuffled quantity" )
         return d, quantity
-            
     
-    def findT (self):
-        """ Finds numeric approximation of Max/ Min temperature on the planet.
-        !!! DOES NOT WORK AS EXPECTED!!! should fix
-
-        Note
-        ----
-        
-        ONLY WORKS FOR CIRCULAR ORBITS.
-        
-        Used for testing. Supposed to compare to the analytic approximations in 
-        the functions phi-max, Tmax, Tdusk, Tdawn, to
-        check that the DE is working well. Or to check that the analytic approx. 
-        is working well. 
-
-        Parameters
-        ----------
-        None
-
-        Calls
-        -------
-        
-        self.DE(), the 0 eccentricity branch.
-
-
-   
-        Returns
-        -------
-   
-        Tmax (float)
-            Maximum temperature on the planet in T/T0
+    
+    def Calc_MaxDuskDawn_Temps(self):
+        """Something.
             
-        Tdawn 
-            Dawn temperature on the planet in T/T0
+        Something else.
         
-        Tdusk
-            Dusk temperature on the planet in T/T0
-
         """
+        start_time = int(self.stepsi*(self.pmaxi-1))
         
-        #tmax = self.Prot*pmax
-        #Nmin = int((pmax)*300)
-        #deltat = tmax/Nmin
-        pmaxi = self.pmaxi
-        stepsi = self.stepsi
+        # For now, each gives you values at every time step.
+        # Can do an extra check to get a single value.
+        max_args = np.argmax(self.Tvals_evolve[start_time:,:],axis=1)
+        max_angles = hp.pix2ang(self.NSIDE,max_args)
         
-        t,d = self.DE()
-        
-        
-        #deltaphi = 2.0*pi/stepsi
-        Tmax = np.max(np.max(d[int(self.stepsi*(self.pmaxi-1))::,:,2],axis =1))
-        #Tmax = np.max(d[int(stepsi*(pmaxi-2))::,:,2])
-        
-            
-        #for i in range(int(stepsi*(pmaxi-2)), int(stepsi*pmaxi)):
-            
-            
-            
-                #if deltaphi >= np.abs(1.5*pi - (d[i,np.where(np.abs(d[i,:,0]-0.5*pi))< 0.1, np.where(np.abs(d[i,:,1]-1.5*pi))< 0.1]):
-                    #print np.abs(1.5 - phi[i])*pi, 'dawn difference' 
-                    #Tdawn = T[i]
-        Tdawn = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, -pi/2),2])
-                
-        Tdusk = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, pi/2),2])
-
-                
-                #if deltaphi >= np.abs(2.5 - (phi[i]-2*(pmaxi-2))):
-                    #print np.abs(2.5 - phi[i])*pi, 'dusk difference'
-
-                    #Tdusk = T[i]
-            
-        return Tmax, Tdawn, Tdusk
+        Ttilda_max = np.amax(self.Tvals_evolve[start_time:,:],axis=1)
+        Ttilda_dusk = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,pi/2.0)]
+        Ttilda_dawn = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,-pi/2.0)]
     
+        return max_angles,Ttilda_max,Ttilda_dusk,Ttilda_dawn
+    
+#    def findT (self):
+#        """ Finds numeric approximation of Max/ Min temperature on the planet.
+#        !!! DOES NOT WORK AS EXPECTED!!! should fix
+#
+#        Note
+#        ----
+#
+#        ONLY WORKS FOR CIRCULAR ORBITS.
+#
+#        Used for testing. Supposed to compare to the analytic approximations in
+#        the functions phi-max, Tmax, Tdusk, Tdawn, to
+#        check that the DE is working well. Or to check that the analytic approx.
+#        is working well.
+#
+#        Parameters
+#        ----------
+#        None
+#
+#        Calls
+#        -------
+#
+#        self.DE(), the 0 eccentricity branch.
+#
+#
+#
+#        Returns
+#        -------
+#
+#        Tmax (float)
+#            Maximum temperature on the planet in T/T0
+#
+#        Tdawn
+#            Dawn temperature on the planet in T/T0
+#
+#        Tdusk
+#            Dusk temperature on the planet in T/T0
+#
+#        """
+#
+#        #tmax = self.Prot*pmax
+#        #Nmin = int((pmax)*300)
+#        #deltat = tmax/Nmin
+#        pmaxi = self.pmaxi
+#        stepsi = self.stepsi
+#
+#        t,d = self.DE()
+#
+#
+#        #deltaphi = 2.0*pi/stepsi
+#        Tmax = np.max(np.max(d[int(self.stepsi*(self.pmaxi-1))::,:,2],axis =1))
+#        #Tmax = np.max(d[int(stepsi*(pmaxi-2))::,:,2])
+#
+#
+#        #for i in range(int(stepsi*(pmaxi-2)), int(stepsi*pmaxi)):
+#
+#
+#
+#                #if deltaphi >= np.abs(1.5*pi - (d[i,np.where(np.abs(d[i,:,0]-0.5*pi))< 0.1, np.where(np.abs(d[i,:,1]-1.5*pi))< 0.1]):
+#                    #print np.abs(1.5 - phi[i])*pi, 'dawn difference'
+#                    #Tdawn = T[i]
+#        Tdawn = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, -pi/2),2])
+#
+#        Tdusk = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, pi/2),2])
+#
+#
+#                #if deltaphi >= np.abs(2.5 - (phi[i]-2*(pmaxi-2))):
+#                    #print np.abs(2.5 - phi[i])*pi, 'dusk difference'
+#
+#                    #Tdusk = T[i]
+#
+#        return Tmax, Tdawn, Tdusk
+
     
     def _max_temper(self,eps):
         """Something."""
@@ -1699,7 +1718,6 @@ class parcel(object):
         x_2 = 1.1756
         x_3 = -0.2958
         x_4 = 0.1846
-        
         xpon = -x_2 + (x_3/(1.0 + (x_4*eps)))
         func = x_0/(1.0 + x_1*(eps**xpon))
         return np.cos(np.arctan(func))**(0.25)
@@ -1708,7 +1726,6 @@ class parcel(object):
         """Something."""
         y_0 = 0.69073
         y_1 = 7.5534
-    
         return ((pi**2)*((1.0 + (y_0/eps))**(-8)) + y_1*(eps**(-8/7)))**(-1/8)
     
     def _dawn_temper(self,eps):
@@ -1716,7 +1733,7 @@ class parcel(object):
         return (pi + (3.0*pi/eps)**(4/3))**(-1/4)
     
     
-    def Tnorm_MaxDuskDawn(self,epsilon="self"):
+    def Approx_MaxDuskDawn_Temps(self,epsilon="self"):
         """Blah blah blah
         
         Some bozo.
@@ -1727,6 +1744,7 @@ class parcel(object):
         else:
             eps = self.epsilon
         
+        # Each gives you single T values.
         Ttilda_max = self._max_temper(eps)
         Ttilda_dusk = self._dusk_temper(eps)
         Ttilda_dawn = self._dawn_temper(eps)
