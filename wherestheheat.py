@@ -665,13 +665,13 @@ class parcel(object):
                     Flux emmitted at the specified wavelength.
 
         """
-        total_blackbody = self.stef_boltz*(self.Teff**4)
+        bolo_blackbody = self.stef_boltz*(self.Teff**4)
         wavelength = microns*(10**(-6))  # microns to meters
         xpon = self.planck*self.speed_light/(wavelength*self.boltz*self.Teff)
-        ## So total and wave units match, leading "pi" is from integral over solid angle.
+        ## So bolo and wave units match, leading "pi" is from integral over solid angle.
         wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
         
-        return total_blackbody*(4.0*pi*(self.Rstar**2)),wave_blackbody*(4.0*pi*(self.Rstar**2))
+        return bolo_blackbody*(4.0*pi*(self.Rstar**2)),wave_blackbody*(4.0*pi*(self.Rstar**2))
         
         
     def Finc(self):
@@ -1216,7 +1216,7 @@ class parcel(object):
 #                    return t, d
 
     
-    def Fleaving(self,microns=8.0, MAP = False):
+    def Fleaving(self,microns=8.0):
         """Calculates outgoing planetary flux (Total and wavelength dependant)
         from the temperature values coming from the DE. 
 
@@ -1304,19 +1304,15 @@ class parcel(object):
         """
         self.DE()  # May want to restructure this.
         
-        total_blackbody = self.stef_boltz*((self.Tvals_evolve*self.T0)**4)
+        bolo_blackbody = self.stef_boltz*((self.Tvals_evolve*self.T0)**4)
         wavelength = microns*(10**(-6))  # microns to meters
         xpon = self.planck*self.speed_light/(wavelength*self.boltz*(self.Tvals_evolve*self.T0))
-        ## So total and wave units match, leading "pi" is from integral over solid angle.
+        ## So bolo and wave units match, leading "pi" is from integral over solid angle.
         wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
         
-        unit_area = hp.nside2pixarea(self.NSIDE)*(self.Rplanet**2)
-        
-        flux_total = np.sum(total_blackbody*unit_area,axis=1)
-        flux_wave = np.sum(wave_blackbody*unit_area,axis=1)
-        
-        return total_blackbody,flux_total,wave_blackbody,flux_wave
-        
+        return bolo_blackbody,wave_blackbody
+    
+    
         ### ### ###
         
 #
@@ -1362,7 +1358,7 @@ class parcel(object):
 #            return t, d, Fmap_wv
 
     
-    def Fobs(self, wavelength = 8.0, PRINT = False, MAP = False, BOLO = False, HEMISUM = False):  ###JCS: Added 'HEMISUM' 02/15/17
+    def Fobs(self,microns=8.0,hemi=True,sphere=True):  ###JCS: Added 'HEMISUM' 02/15/17...and now it's gone ;-)
         """ Calculates outgoing planetary flux as seen by an observer (wavelength dependant only).
         
 
@@ -1454,88 +1450,110 @@ class parcel(object):
             If Map = False (default)
             
             t, d, Fwv
-            """
+        """
+        bolo_blackbody,wave_blackbody = self.Fleaving(microns)
         
-        #tic = time.time()
-        #print ("Starting Fobs")
+        unit_area = hp.nside2pixarea(self.NSIDE)*(self.Rplanet**2)
         
-        pmaxi = self.pmaxi
-        #stepsi = self.stepsi
+        # Observer flux (i.e. light curve)
+        flux_bolo_obs = np.sum(self.visibility*bolo_blackbody*unit_area,axis=1)
+        flux_wave_obs = np.sum(self.visibility*wave_blackbody*unit_area,axis=1)
+        
+        # Hemispere flux (i.e. without observer visibility)
+        hemi_visible = (self.visibility > 0)
+        flux_bolo_hemi = np.sum(hemi_visible*bolo_blackbody*unit_area,axis=1)
+        flux_wave_hemi = np.sum(hemi_visible*wave_blackbody*unit_area,axis=1)
+        
+        # Planet flux (i.e. over whole sphere)
+        flux_bolo_planet = np.sum(bolo_blackbody*unit_area,axis=1)
+        flux_wave_planet = np.sum(wave_blackbody*unit_area,axis=1)
+        
+        # Probably want to choose returns at some point.
+        return flux_bolo_obs,flux_wave_obs,flux_bolo_hemi,flux_wave_hemi,flux_bolo_planet,flux_wave_planet
         
         
-        if MAP:
+        ### ### ###
         
-            'call the functions we need'
-            t, d, Fmap_wv, Fmap_wvpix,Fleavingwv, Ftotal = self.Fleaving( wavelength, MAP = True)
-            
-            #weight = self.weight
-            weight = self.visibility(d)
-    
-            crap, weightpix = self.shuffle(d, weight)
-            
-            
-            'start doing what this function does'
+#        #tic = time.time()
+#        #print ("Starting Fobs")
+#
+#        pmaxi = self.pmaxi
+#        #stepsi = self.stepsi
+#
+#
+#        if MAP:
+#
+#            'call the functions we need'
+#            t, d, Fmap_wv, Fmap_wvpix,Fleavingwv, Ftotal = self.Fleaving( wavelength, MAP = True)
+#
+#            #weight = self.weight
+#            weight = self.visibility(d)
+#
+#            crap, weightpix = self.shuffle(d, weight)
+#
+#
+#            'start doing what this function does'
+#
+#            #UNCOMMENT IF YOU WANNA CHECK THAT THE SHUFFLING ISNT DESTROYING ANYTHING
+#            Fmapwvobs = Fmap_wvpix*weightpix
+#            #Fmapwvobs_check = Fmap_wv*weight
+#            Fwv = np.empty(len(t))
+#            #Fwv_check = np.empty(Nmin)
+#            for i in range(len(t)):
+#
+#                Fwv[i] = np.sum(Fmapwvobs[i,:])
+#                #Fwv_check[i] = np.sum(Fmapwvobs_check[i,:])
+#
+#            #print "DO we get the same flux before and after shuffling? "
+#            #print (Fwv == Fwv_check)
+#
+#            if PRINT == True:
+#
+#                fluxwv = np.array(Fwv).reshape(-1,1)
+#                np.savetxt('observedflux_planet'+str(self.steps)+'_steps_per_period_'+str(pmaxi)+'periods_'
+#                           +str(self.NSIDE)+'_NSIDE.out',
+#                           zip( t, fluxwv), header = "time(planetdays),time(s), outgoing flux, outgoing flux per wv")
+#            #toc = time.time()
+#            #print ('Done with Fobs')
+#            #print ('Time Fobs took: ' + str(toc-tic) + 'seconds')
+#
+#            if PRINT == False:
+#                return  t, d, Fmapwvobs, weight, weightpix, Fwv
+#
+#        else:
+#            t, d, Fmap_wv = self.Fleaving(wavelength)
+#            weight = self.visibility(d)
+#            ###JCS: Modified below here
+#
+#            if BOLO == True:
+#                dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
+#                Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
+#                Fmap_total = Ftotal_*weight
+#                Ft = np.sum(Fmap_total, axis = 1)
+#
+#                if HEMISUM == True:  ###JCS: This means 'do you also want to straight-total the flux from each hemisphere you see?'
+#                    hemi = np.copy(weight)  #JCS: Take the visibility...
+#                    hemi[hemi > 0] = 1.0  #JCS: ...and turn it into a simple 'seen/unseen' mask...
+#                    Hmap_total = Ftotal_*hemi
+#                    Hflux = np.sum(Hmap_total, axis = 1)  #JCS: ...so you get the total hemisphere flux WITHOUT THE OBSERVER BIAS
+#                    return t,d,Ft,Hflux
+#                else:
+#                    return t, d, Ft
+#
+#            else:
+#                Fmapwvobs = Fmap_wv*weight
+#                Fwv = np.sum(Fmapwvobs, axis = 1)
+#
+#                if HEMISUM == True:
+#                    hemi = np.copy(weight)
+#                    hemi[hemi > 0] = 1.0
+#                    Hmapwvobs = Fmap_wv*hemi
+#                    Hwvflux = np.sum(Hmapwvobs, axis = 1)
+#                    return t,d,Fwv,Hwvflux
+#                else:
+#                    return t, d, Fwv
 
-            #UNCOMMENT IF YOU WANNA CHECK THAT THE SHUFFLING ISNT DESTROYING ANYTHING
-            Fmapwvobs = Fmap_wvpix*weightpix
-            #Fmapwvobs_check = Fmap_wv*weight
-            Fwv = np.empty(len(t))
-            #Fwv_check = np.empty(Nmin)
-            for i in range(len(t)):
-    
-                Fwv[i] = np.sum(Fmapwvobs[i,:])
-                #Fwv_check[i] = np.sum(Fmapwvobs_check[i,:])
-                
-            #print "DO we get the same flux before and after shuffling? " 
-            #print (Fwv == Fwv_check)
-    
-            if PRINT == True:
-                
-                fluxwv = np.array(Fwv).reshape(-1,1)
-                np.savetxt('observedflux_planet'+str(self.steps)+'_steps_per_period_'+str(pmaxi)+'periods_'
-                           +str(self.NSIDE)+'_NSIDE.out', 
-                           zip( t, fluxwv), header = "time(planetdays),time(s), outgoing flux, outgoing flux per wv")
-            #toc = time.time()
-            #print ('Done with Fobs')
-            #print ('Time Fobs took: ' + str(toc-tic) + 'seconds')
-            
-            if PRINT == False:
-                return  t, d, Fmapwvobs, weight, weightpix, Fwv
-    
-        else:
-            t, d, Fmap_wv = self.Fleaving(wavelength)
-            weight = self.visibility(d)
-            ###JCS: Modified below here
-            
-            if BOLO == True:
-                dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
-                Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
-                Fmap_total = Ftotal_*weight
-                Ft = np.sum(Fmap_total, axis = 1)
-                
-                if HEMISUM == True:  ###JCS: This means 'do you also want to straight-total the flux from each hemisphere you see?'
-                    hemi = np.copy(weight)  #JCS: Take the visibility...
-                    hemi[hemi > 0] = 1.0  #JCS: ...and turn it into a simple 'seen/unseen' mask...
-                    Hmap_total = Ftotal_*hemi
-                    Hflux = np.sum(Hmap_total, axis = 1)  #JCS: ...so you get the total hemisphere flux WITHOUT THE OBSERVER BIAS
-                    return t,d,Ft,Hflux
-                else:
-                    return t, d, Ft
-                
-            else:
-                Fmapwvobs = Fmap_wv*weight
-                Fwv = np.sum(Fmapwvobs, axis = 1)
-                
-                if HEMISUM == True:
-                    hemi = np.copy(weight)
-                    hemi[hemi > 0] = 1.0
-                    Hmapwvobs = Fmap_wv*hemi
-                    Hwvflux = np.sum(Hmapwvobs, axis = 1)
-                    return t,d,Fwv,Hwvflux
-                else:
-                    return t, d, Fwv
-
-                    
+    ### NOT SURE YET IF I WANT TO KEEP THIS METHOD.
     def shuffle (self, d = None, quantity = None):
         """ This function will take an array for a quantity as well as it's coordinates
         and rearrange it so it will correspond to healpy pixel number.
