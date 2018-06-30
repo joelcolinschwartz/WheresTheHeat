@@ -163,39 +163,182 @@ class parcel(object):
         ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=180.0,i=90.0,w=self.arg_peri)
         
         # Make time array
-        tmax = self.Porb*self.pmaxi
-        Nmin = int(self.pmaxi*self.stepsi)
+        tmax = self.Porb*self.numOrbs
+        Nmin = int(self.numOrbs*self.stepsPerRot)
         if self.continueOrbit:
-            t = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
+            timeval = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
         else:
-            t = np.linspace(0,tmax,num=Nmin+1)
+            timeval = np.linspace(0,tmax,num=Nmin+1)
         
-        radius = ke.radius(t)
-        vel = ke.xyzVel(t)
+        radius = ke.radius(timeval)
+        vel = ke.xyzVel(timeval)
         abs_vel = (vel[:,0]**2.0 + vel[:,1]**2.0 + vel[:,2]**2.0)**0.5
         ang_vel = abs_vel/radius
         
-        pos,TA = ke.xyzPos(t,getTA=True)
+        # TA == true anomaly
+        pos,TA = ke.xyzPos(timeval,getTA=True)
         
-        # Want 0 at transit and f = 90-w at transit, so alpha = 90-w - f
+        # Want 0 at transit and TA = 90-w at transit, so alpha = 90-w - TA
         alpha = (90.0-self.arg_peri) - np.degrees(np.array(TA))
-        f = 0.5*(1.0 - np.cos(np.radians(alpha)))
+        frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
             
-        self.t = t
+        self.timeval = timeval
         self.radius = radius
         self.ang_vel = ang_vel
         self.alpha = alpha
-        self.f = f
+        self.frac_litup = frac_litup
         return
     
-
-    def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
-                 Rplanet = 1.0870, a = 0.05, 
-                 e = 0.1, argp = 0,
-                 motions='calc', orbval=1.0, rotval=1.0,
-                 A = 0, Porb = -1,
-                 wadv = 2, tau_rad = 20, epsilon = None, pmax = 3, steps = 300, NSIDE = 8,
-                 again_Tmap = None,again_t = 0,continueOrbit = False):
+    def _phases_SOpoints(self):
+        """
+            Calculates coordinates of substellar point wrt to the location of the
+            substellar point at periastron (theta = Pi/2, phi =0).
+            Used to rotate the coordinate array array as a function of time .
+            
+            Also calculates coordinates of subobserver location wrt subobserver location at periastron.
+            
+            Note
+            ----
+            DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried.
+            
+            Parameters
+            ----------
+            None
+            
+            
+            
+            Returns
+            -------
+            
+            t (1D array)
+            Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps.
+            
+            zt (1D array)
+            Same lenght as t. Cumulative orbital angular displacement.
+            
+            SSP (1D array)
+            Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
+            Gives coordinate of substellar point relative
+            to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+            
+            
+            SOP (1D array)
+            Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
+            
+        """
+        orbital_phase = np.zeros(self.timeval.shape)
+        if self.continueOrbit:
+            orb_pos_zero = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
+        else:
+            orb_pos_zero = 0
+        orb_phase[0] = orb_pos_zero
+        
+        delta_t = self.timeval[1:] - self.timeval[:-1]
+        orb_phase[1:] = orb_pos_zero + np.cumsum(self.ang_vel[:-1]*delta_t)
+        
+        # Using w_rot because w_adv includes w_orb- Yes?
+        SSP = (orb_phase - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
+        # To get anti-SSP at t=0, do (-w_rot * t) + pi
+        SOP = (pi - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
+        
+        self.orb_phase = orb_phase
+        self.SSP = SSP
+        self.SOP = SOP
+        return
+    
+    def _phiT_visillum(self):
+        """Creates coordinate matrix wrt substellar point at each point in time.
+            Creates initial temperature array.
+            Calculates weight function to be applied to stellar flux to obtain
+            incident flux a each location on the planet, at each point in time.
+            
+            Note
+            ----
+            DEPENDS ON WADV; CAN'T BE STORED IN __init__
+            In places where initial temperature is 0, we replace T = 0 with T = 0.1 to avoid overflows.
+            At t = 0, the planet is at periastron and the substellar point
+            is located at theta = Pi/2, phi = 0
+            
+            Parameters
+            ----------
+            None
+            
+            Calls
+            -------
+            
+            self.SSP(pmax, steps) to get:
+            
+            t
+            1D time array of lenght pmax * int(Porb/ 24hrs)*steps;
+            in seconds
+            
+            SSP
+            1D array, same lenght as t. Gives coordinate of substellar point relative
+            to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+            Used to rotate the coordinate array array as a function of time .
+            
+            Returns
+            -------
+            
+            d
+            3D position and temperature array;
+            
+            shape = (len(time), NPIX, 3)
+            
+            d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
+            *remains constant as a function of time
+            
+            d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
+            
+            
+            d[:,:,2] = starting temperature array
+            
+            Fweight
+            2-D array that represents the weight applied to the stellar flux
+            at each location on the planet to obtain incident flux at each moment in time.
+            --- shape is (lenght time, NPIX)
+            
+            coordsSOP (2D array)
+            coordinates relative to the suborserver point
+            
+            weight (2D array )
+            visibility array to be applied to flux array in coordinates wrt SSP
+            (shape is (#time steps, NPIX))
+            
+        """
+        if self.continueOrbit:
+            Tvals = self.again_Tmap
+        else:
+            the_low_case = (np.sin(self.thetas)*(np.cos(self.phis) + np.absolute(np.cos(self.phis)))/2.0)**0.25  # Need **0.25 outside EVERYTHING
+            the_high_case = (np.sin(self.thetas)/pi)**0.25
+            the_scaler = (self.epsilon**1.652)/(1.828 + self.epsilon**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
+            Tvals = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
+            Tvals[Tvals<0.1] = 0.1
+        
+        # Original array has shape (time steps, num. of pixels, 3) where 3 is lat-long-temp.
+        # Try to simplify: lats never change, keep longs and temps apart.
+        phis_evolve = self.phis[np.newaxis,:] + (self.SSP[:,np.newaxis]*np.sign(self.wadv))
+        Tvals_evolve = np.zeros(phis_evolve.shape)
+        Tvals_evolve[0,:] += Tvals
+        phis_relSOP = self.phis_evolve - np.radians(180.0-self.alpha[:,np.newaxis]) # For making visibility
+        
+        # Called "Fweight" before.
+        illumination = 0.5*(np.cos(phis_evolve) + np.absolute(np.cos(phis_evolve)))*np.sin(self.thetas)
+        visibility = 0.5*(np.cos(phis_relSOP) + np.absolute(np.cos(phis_relSOP)))*np.sin(self.thetas)
+        
+        self.phis_evolve = phis_evolve
+        self.Tvals_evolve = Tvals_evolve
+        self.illumination = illumination
+        self.visibility = visibility
+        return
+    
+    
+    def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
+                 Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
+                 motions='calc',orbval=1.0,rotval=1.0,
+                 tau_rad=12.0,epsilon=1.0,
+                 numOrbs=3,stepsPerRot=360,NSIDE=8,
+                 again_Tmap=False,again_t=0,continueOrbit=False):
         
         """The __init__ method allows to set attributes unique to each parcel instance.
         It takes some parameters in the units specified in the docstring. Some are 
@@ -324,11 +467,11 @@ class parcel(object):
         self.Rstar = Rstar*self.radius_sun  # star radius
         self.Mstar = Mstar*self.mass_sun # star mass
         self.Rplanet = Rplanet*self.radius_jupiter  # planet mass
-        self.smaxis = a*self.astro_unit  # semimajor axis
-        self.eccen = e  # eccentricity
-        self.arg_peri = argp  # angle betwen periastron and transit (degrees)
+        self.smaxis = smaxis*self.astro_unit  # semimajor axis
+        self.eccen = eccen  # eccentricity
+        self.arg_peri = arg_peri  # angle betwen periastron and transit (degrees)
         
-        self.bondA = A  # planet Bond albedo
+        self.bondA = bondA  # planet Bond albedo
 
         if motions == 'calc':
             self._period_calc()
@@ -355,11 +498,9 @@ class parcel(object):
             self.epsilon = abs(self.wadv)*tau_rad
         
         # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
-        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1)) #used for giving the default time length for DE
-        self.pmax = pmax
-        self.steps = steps
-        self.pmaxi = self.pmax ###JCS num. of orb. periods  #number of rotational periods we will integrate for
-        self.stepsi = self.steps * self.rotationsPerOrbit ###JCS steps per orbit  #steps per rotational period
+        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1))  # For the default time length
+        self.numOrbs = numOrbs  # Num. of orb. periods
+        self.stepsPerRot = stepsPerRot*self.rotationsPerOrbit  # Steps per orbit
         
         ### JCS Things - want to make these automatic eventually.
         self.again_Tmap = again_Tmap
@@ -367,9 +508,14 @@ class parcel(object):
         self.continueOrbit = continueOrbit
 
         self._kepler_calcs()
-
         
-
+        self.NSIDE = NSIDE
+        self.thetas,self.phis = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
+        
+        self._phases_SOpoints()
+        self._phiT_visillum()
+        return
+        
         #####  #####
         
 ##        if Porb <= 0.0:
@@ -415,52 +561,83 @@ class parcel(object):
 ##            else:
 ##                self.epsilon = epsilon
 ##                self.tau_rad = np.abs(self.epsilon/self.wadv)
+#
+#        # we're not fitting, keeping time aray to default
+#        self.NSIDE = NSIDE
+#
+#        #POSITIONS
+#        coords =np.empty(((hp.nside2npix(self.NSIDE)),2))
+#        for i in range(hp.nside2npix(self.NSIDE)):
+#            coords[i,:]=(np.array(hp.pix2ang(self.NSIDE, i)))
+#        self.phis = coords[:,1]
+#        self.thetas = coords[:,0]
+
+    def Info_Print(self):
+        """Blah blah blah."""
+        # Name
+        print('Below are some parameters you are using to model {}.'.format(self.name))
+        print('')
         
+        # Rstar, Mstar, Teff
+        form_cols = '{:^16} {:^16} {:^18}'
+        print(form_cols.format('R_star (solar)','M_star (solar)','T_effective (K)'))
+        form_cols = '{:^16.2f} {:^16.2f} {:^18.1f}'
+        print(form_cols.format(self.Rstar/self.radius_sun,self.Mstar/self.mass_sun,self.Teff))
+        print('')
         
-        # we're not fitting, keeping time aray to default
-        self.NSIDE = NSIDE
+        # Rplanet, Bond, smaxis, T0
+        form_cols = '{:^20} {:^14} {:^16} {:^20}'
+        print(form_cols.format('R_planet (Jupiter)','Bond albedo','Semimajor (AU)','T_irradiation (K)'))
+        form_cols = '{:^20.2f} {:^14.2f} {:^16.3f} {:^20.1f}'
+        print(form_cols.format(self.Rplanet/self.radius_jupiter,self.bondA,self.smaxis/self.astro_unit,self.T0))
+        print('')
         
+        # Porb, Prot, eccen, argp
+        form_cols = '{:^14} {:^14} {:^14} {:^24}'
+        print(form_cols.format('P_orb (days)','P_rot (days)','Eccentricity','Arg. periastron (deg.)'))
+        form_cols = '{:^14.2f} {:^14.2f} {:^14.3f} {:^24.1f}'
+        print(form_cols.format(self.Porb/self.sec_per_day,self.Prot/self.sec_per_day,self.eccen,self.arg_peri))
+        print('')
         
-        #POSITIONS
-        coords =np.empty(((hp.nside2npix(self.NSIDE)),2))
-        for i in range(hp.nside2npix(self.NSIDE)):
-            coords[i,:]=(np.array(hp.pix2ang(self.NSIDE, i)))
-        self.phis = coords[:,1]
-        self.thetas = coords[:,0]
+        # wadv, tau_rad, epsilon
+        form_cols = '{:^16} {:^22} {:^10}'
+        print(form_cols.format('Advective freq.','Radiative time (hrs)','Epsilon'))
+        form_cols = '{:^16.3f} {:^22.3f} {:^10.3f}'
+        print(form_cols.format(self.wadv,self.tau_rad/3600.0,self.epsilon))
         
-        
-       
+        return
     
-    def print_stuff(self):
-            """Simply prints the planetary characteristics that you assigned to your object,
-            as well as the ones that were calculated from the same information; Takes no arguments, 
-            returns nothing. """
-        
-            print("""Name  = {0} (Name of model)
-                    Teff = {1} K (Temperature Star)
-                    Rstar = {2} R-sun (Radius Star in solar radii)
-                    Rplanet = {3} R-sun (Radius Planet in solar radii)
-                    a = {4} AU (semimajor axis)
-                    e = {5} (eccentricity)
-                    argp = {6} #angle betwen periatron and transit in degrees
-                    A = {7} (Bond Albedo)
-                    P = {8} days (period of rotation of planet) **might need fixing
-                    Porb = {9} days (orbital period of planet)
-                    wadv = {10} - units of angular frequency 2Pi/planetperiod *wadv??
-                    T0 = {11} K (Temperature of substellar point at periastron)
-                    tau_rad = {12} hrs (radiative time scale)
-                    epsilon = {13} dimensionless circulation efficeincy param
-                    default rotationsPerOrbit = {14} #used for giving the default time lenght for DE
-                    **** all of these are converted to SI units but they need 
-                    to be entered in the units mentioned here ***
-                    """.format (self.name, self.Teff, self.Rstar/self.radius_sun, self.Rplanet/self.radius_sun,
-                                self.smaxis/self.astro_unit, self.eccen, self.arg_peri,
-                                self.bondA,
-                                self.Prot/self.sec_per_day, self.Porb/self.sec_per_day,
-                                self.wadv*self.Prot/ (2*pi),
-                                self.T0, self.tau_rad/ 3600.0, 
-                                self.epsilon, self.rotationsPerOrbit))
-                                
+    
+#    def print_stuff(self):
+#            """Simply prints the planetary characteristics that you assigned to your object,
+#            as well as the ones that were calculated from the same information; Takes no arguments,
+#            returns nothing. """
+#
+#            print("""-Name  = {0} (Name of model)
+#                    -Teff = {1} K (Temperature Star)
+#                    -Rstar = {2} R-sun (Radius Star in solar radii)
+#                    -Rplanet = {3} R-sun (Radius Planet in solar radii)
+#                    -a = {4} AU (semimajor axis)
+#                    -e = {5} (eccentricity)
+#                    -argp = {6} #angle betwen periatron and transit in degrees
+#                    -A = {7} (Bond Albedo)
+#                    -P = {8} days (period of rotation of planet) **might need fixing
+#                    -Porb = {9} days (orbital period of planet)
+#                    -wadv = {10} - units of angular frequency 2Pi/planetperiod *wadv??
+#                    -T0 = {11} K (Temperature of substellar point at periastron)
+#                    -tau_rad = {12} hrs (radiative time scale)
+#                    -epsilon = {13} dimensionless circulation efficeincy param
+#                    default rotationsPerOrbit = {14} #used for giving the default time lenght for DE
+#                    **** all of these are converted to SI units but they need
+#                    to be entered in the units mentioned here ***
+#                    """.format (self.name, self.Teff, self.Rstar/self.radius_sun, self.Rplanet/self.radius_sun,
+#                                self.smaxis/self.astro_unit, self.eccen, self.arg_peri,
+#                                self.bondA,
+#                                self.Prot/self.sec_per_day, self.Porb/self.sec_per_day,
+#                                self.wadv*self.Prot/ (2*pi),
+#                                self.T0, self.tau_rad/ 3600.0,
+#                                self.epsilon, self.rotationsPerOrbit))
+
      
     """ FUNCTIONS FOR DEFINING THE PLANET CONDITIONS, STELLAR FLUX """
        
@@ -491,7 +668,7 @@ class parcel(object):
     
 
     
-    def Fstar(self, wavelength = 8.0):
+    def Fstar(self,microns=8.0):
 
         """Calculates total flux emmitted by the star and wavelength dependent flux.
         
@@ -519,16 +696,17 @@ class parcel(object):
                 Fwv (float)
                     Flux emmitted at the specified wavelength.
 
-            """
-        wv = wavelength * 10**(-6) #wavelength was in micrometers, it's now in meters
-        F = self.stef_boltz*self.Teff**4*pi*self.Rstar**2
-        Fwv = ((2*self.planck*self.speed_light**2/wv**5)*(1/(np.e**((self.planck*self.speed_light)/
-                (wv*self.boltz*self.Teff))-1))*pi*self.Rstar**2 )
-        return F, Fwv
+        """
+        bolo_blackbody = self.stef_boltz*(self.Teff**4)
+        wavelength = microns*(10**(-6))  # microns to meters
+        xpon = self.planck*self.speed_light/(wavelength*self.boltz*self.Teff)
+        ## So bolo and wave units match, leading "pi" is from integral over solid angle.
+        wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
+        
+        return bolo_blackbody*(4.0*pi*(self.Rstar**2)),wave_blackbody*(4.0*pi*(self.Rstar**2))
         
         
     def Finc(self):
-                
         """Total (all wavelengths) flux incident on substellar point as 
         a function of time (position in the orbit).
         
@@ -551,501 +729,526 @@ class parcel(object):
                     Theoretical total flux incident on substellar point at each moment on time;
                     lenght pmax * int(Porb/ 24hrs)*steps. 
 
-            """  
-
+        """
+        ## Only scales sigma*T^4, may need to adjust later.
+        return self.stef_boltz*(self.Teff**4)*((self.Rstar/self.radius)**2)
         
-        return self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius))**2
-        
-    def Finc_hemi(self):
-        
-        """Energy incident on the lighted hemisphere of planet. Used for nothing, actually.
+#    def Finc_hemi(self):
+#
+#        """Energy incident on the lighted hemisphere of planet. Used for nothing, actually.
+#
+#
+#        Parameters
+#        ----------
+#            None
+#
+#        Calls
+#        -------
+#
+#            self.Finc(pmax, steps) to get flux incident on the substellar point.
+#
+#        Returns
+#        -------
+#
+#                Finc_hemi (1D array)
+#                    Theoretical total flux incident on planet at each moment on time;
+#                    lenght pmax * int(Porb/ 24hrs)*steps.
+#
+#            """
+#
+#        # Einc = Finc* integral(phi: 0->2pi, theta: 0->pi/2) rp^2*cos(theta)sin(theta) dtheta dphi
+#        # ---- integral overplanet coordinates
+#        return self.Finc()*pi*self.Rplanet**2
 
-    
-        Parameters
-        ----------
-            None
-
-        Calls
-        -------
-            
-            self.Finc(pmax, steps) to get flux incident on the substellar point.
-            
-        Returns
-        -------
-            
-                Finc_hemi (1D array)
-                    Theoretical total flux incident on planet at each moment on time;
-                    lenght pmax * int(Porb/ 24hrs)*steps. 
-
-            """           
-
-        # Einc = Finc* integral(phi: 0->2pi, theta: 0->pi/2) rp^2*cos(theta)sin(theta) dtheta dphi
-        # ---- integral overplanet coordinates
-        return self.Finc()*pi*self.Rplanet**2
-            
     
     
     """FUNCTIONS FOR DEFINING THE COORDINATE SYSTEM AND MOVEMENT AS A FUNCTION OF TIME """
     """::: they all use module pyasl from PyAstronomy ::: """
     
-    def SSP(self):
+#    def SSP(self):
+#
+#        """
+#
+#        Calculates coordinates of substellar point wrt to the location of the
+#        substellar point at periastron (theta = Pi/2, phi =0).
+#        Used to rotate the coordinate array array as a function of time .
+#
+#        Also calculates coordinates of subobserver location wrt subobserver location at periastron.
+#
+#        Note
+#        ----
+#             DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried.
+#
+#        Parameters
+#        ----------
+#            None
+#
+#
+#
+#        Returns
+#        -------
+#
+#                t (1D array)
+#                    Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps.
+#
+#                zt (1D array)
+#                    Same lenght as t. Cumulative orbital angular displacement.
+#
+#                SSP (1D array)
+#                    Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
+#                    Gives coordinate of substellar point relative
+#                    to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+#
+#
+#                SOP (1D array)
+#                    Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
+#
+#            """
+#
+#
+#
+#        t = self.t
+#        'z0= orbital position at t = 0'
+#        #z0=self.arg_peri*pi/180
+#        if self.continueOrbit == True:
+#            z0 = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
+#        else:
+#            z0=0
+#        'orbital phase'
+#        zt = np.empty(len(self.t))
+#        deltat = t[1::]-t[:-1:]
+#        #deltat = (self.Prot*1.0)/(stepsi*1.0)
+#        zt[0]=z0
+#        ###JCS  for i in range(1,len(self.t)):
+#        ###JCS      zt[i]= zt[i-1]+self.ang_vel[i-1]*deltat[i-1]
+#
+#        zt[1:] = zt[0] + np.cumsum(self.ang_vel[:-1]*deltat)  ###JCS: At least avoids 1 for-loop
+#
+#        #added the mod 2pi removed the rest of the trying to mod out by pi stuff
+#        ###JCS### SSP =(zt-((self.wadv)*t))%(2*pi)# -((self.wadv*t)/(2*pi)).astype(int)*2*pi)-
+#        #(t/self.Porb).astype(int)*2*pi)
+#
+#        SSP = (zt - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: Trying w_rot instead because w_adv already includes w_orb in it.
+#
+#        ###JCS SOP = (((-self.alpha[0]+180)*pi/180)-
+#        ###JCS         ((self.wadv)*t)%(2*pi))#-((self.wadv*t)/(2*pi)).astype(int)*2*pi))
+#
+#        SOP = (pi - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: (-w_rot * t) + pi, to get anti-SSP at t=0
+#
+#        #SOP = SSP + ((-alpha+180)*pi/180)
+#        return t, zt, SSP, SOP
 
-        """
-             
-        Calculates coordinates of substellar point wrt to the location of the 
-        substellar point at periastron (theta = Pi/2, phi =0). 
-        Used to rotate the coordinate array array as a function of time .
-        
-        Also calculates coordinates of subobserver location wrt subobserver location at periastron.
-        
-        Note
-        ----
-             DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried. 
-    
-        Parameters
-        ----------
-            None
-
-        
-            
-        Returns
-        -------
-            
-                t (1D array)
-                    Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps. 
-                    
-                zt (1D array)
-                    Same lenght as t. Cumulative orbital angular displacement. 
-                    
-                SSP (1D array)
-                    Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
-                    Gives coordinate of substellar point relative 
-                    to the substellar point at periastron (located at theta = Pi/2, phi = 0).
-                    
-                
-                SOP (1D array)
-                    Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
-    
-            """
-        
-        
-        
-        t = self.t
-        'z0= orbital position at t = 0'
-        #z0=self.arg_peri*pi/180
-        if self.continueOrbit == True:
-            z0 = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
-        else:
-            z0=0
-        'orbital phase'
-        zt = np.empty(len(self.t))
-        deltat = t[1::]-t[:-1:]
-        #deltat = (self.Prot*1.0)/(stepsi*1.0)
-        zt[0]=z0
-        ###JCS  for i in range(1,len(self.t)):  
-        ###JCS      zt[i]= zt[i-1]+self.ang_vel[i-1]*deltat[i-1]
-
-        zt[1:] = zt[0] + np.cumsum(self.ang_vel[:-1]*deltat)  ###JCS: At least avoids 1 for-loop
-        
-        #added the mod 2pi removed the rest of the trying to mod out by pi stuff
-        ###JCS### SSP =(zt-((self.wadv)*t))%(2*pi)# -((self.wadv*t)/(2*pi)).astype(int)*2*pi)-
-        #(t/self.Porb).astype(int)*2*pi)
-
-        SSP = (zt - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: Trying w_rot instead because w_adv already includes w_orb in it.
-        
-        ###JCS SOP = (((-self.alpha[0]+180)*pi/180)-
-        ###JCS         ((self.wadv)*t)%(2*pi))#-((self.wadv*t)/(2*pi)).astype(int)*2*pi))
-        
-        SOP = (pi - ((2.0*pi/self.Prot)*t)) % (2.0*pi)  ###JCS: (-w_rot * t) + pi, to get anti-SSP at t=0
-        
-        #SOP = SSP + ((-alpha+180)*pi/180)
-        return t, zt, SSP, SOP
-    
 
     """ILLUMINATION AND VISIBILITY """    
     
-    def illum(self) :  
-
-        """Creates coordinate matrix wrt substellar point at each point in time. 
-        Creates initial temperature array. 
-        Calculates weight function to be applied to stellar flux to obtain 
-        incident flux a each location on the planet, at each point in time.
-
-        Note
-        ----
-            DEPENDS ON WADV; CAN'T BE STORED IN __init__
-            In places where initial temperature is 0, we replace T = 0 with T = 0.1 to avoid overflows.
-            At t = 0, the planet is at periastron and the substellar point 
-            is located at theta = Pi/2, phi = 0
-    
-        Parameters
-        ----------
-            None
-                
-        Calls
-        -------
-            
-            self.SSP(pmax, steps) to get:
-                
-                t
-                    1D time array of lenght pmax * int(Porb/ 24hrs)*steps; 
-                    in seconds
-                
-                SSP
-                    1D array, same lenght as t. Gives coordinate of substellar point relative 
-                    to the substellar point at periastron (located at theta = Pi/2, phi = 0).
-                    Used to rotate the coordinate array array as a function of time . 
-            
-        Returns
-        -------
-
-                d 
-                    3D position and temperature array;
-                    
-                    shape = (len(time), NPIX, 3)
-                    
-                    d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
-                    *remains constant as a function of time 
-                    
-                    d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
-                    
-                    
-                    d[:,:,2] = starting temperature array 
-                    
-                Fweight
-                    2-D array that represents the weight applied to the stellar flux 
-                    at each location on the planet to obtain incident flux at each moment in time.
-                    --- shape is (lenght time, NPIX)
-
-    
-            """
- 
-        #TIME
-        Nmin = len(self.t) #int((pmaxi)*stepsi)
-        #tmax = self.Prot*pmaxi
-        t = self.t
-        
-        
-        phis = self.phis#.copy()
-        thetas = self.thetas#.copy()
-        ###JCS### Trying alternate Start_T below (nothing wrong with these)
-##        #STARTING TEMPERATURES
-##        if self.epsilon >= 20:
-##            T = 0.75*(np.sin(thetas)**0.25)*(np.cos(phis)+np.abs(np.cos(phis)))/2
-##            T[np.where(T<0.1)]=0.1
-##        else:
-##            T = (np.sin(thetas)**0.25)*(np.cos(phis)+np.abs(np.cos(phis)))/2
-##            T[np.where(T<0.05)]=0.05
-
-        ###JCS Starting Temps
-        the_low_case = (np.sin(thetas)*(np.cos(phis) + np.absolute(np.cos(phis)))/2.0)**0.25  # Need **0.25 outside EVERYTHING
-        the_high_case = (np.sin(thetas)/pi)**0.25
-        the_scaler = (self.epsilon**1.5)/(1.8 + self.epsilon**1.5)  # Estimated curly epsilon
-        T = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
-        T[T<0.1] = 0.1
-
-        if self.continueOrbit == True:
-            T = self.again_Tmap
-        
-        #3D ARRAY TO CONTAIN EVERYTHING. CALLED IT d
-        #c= np.array(zip(thetas,phis,T)).reshape(-1,hp.nside2npix(self.NSIDE),3)
-        c = np.transpose(np.vstack((thetas,phis,T))).reshape(-1,hp.nside2npix(self.NSIDE),3)
-        d = np.repeat(c,Nmin, axis = 0)
-        
-        
-        
-        #CREATE THE COORDINATE ARRAY. THERE'S 2 CASES: CIRCULAR ORBIT AND ECCENTRIC ORBIT    
-        if self.eccen == 0.0:
-            t, zt, SSP, SOP = self.SSP()
-            "don't need deltaphi here but its good to know what it is"
-            #deltaphi = (2*pi/self.stepsi)* self.wadv/(2*pi/self.Prot)
-            d[:,:,1]= (phis)+(SSP.reshape(-1,1))*(np.sign(self.wadv))
-            
-            #+(deltaphi* np.array(range(0,Nmin)).reshape(-1,1)))%(2*pi) 
-            #-((self.wadv)*t[i] - int(self.wadv*t[i])) #update location of gas parcel
-                    
-           
-        else:
-            "don't need deltaphi here"
-            #deltaphi = (2*pi/stepsi)* self.wadv/(2*pi/self.Prot)
-            t, zt, SSP, SOP = self.SSP()
-            #d[:,:,1]= (phis)+ ((zt.reshape(-1,1))*(np.sign(self.wadv)))%(2*pi)            
-            
-            d[:,:,1]= (phis)+ (SSP.reshape(-1,1))*(np.sign(self.wadv))
-            #+deltaphi* np.array(range(0,Nmin)).reshape(-1,1))%(2*pi) #added this to the mix
-
-
-        #ILLUMINATION WEIGHT FUNCTION. WILL GET PASSED TO DE ALONG WITH D THE COORDINATE MATRIX AND THE STUPID TIME MATRIX
-        Fweight = ((np.cos(d[:,:,1])+ np.abs(np.cos(d[:,:,1])))/2.0 * np.sin(d[:,:,0]))
-                  
-        
-                
-        return d, Fweight
-
-    
-    
-        
-    def visibility(self, d = None, TEST = False):
-        
-        """Calculates the visibility of each gas parcel on the planet, 
-        i.e. how much flux is recieved by an 
-        observer from each location on the planet as a function of time.
-
-        Note
-        ----
-            DEPENDS ON WADV; CAN'T BE STORED IN INIT
-            weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)
-            
-    
-        Parameters
-        ----------
-
-            d (3D array, optional)
-                position and temperature array; is provided as an argument by self.Fobs; 
-                if not provided, self.illum() will be called and the array d will be calculated 
-                    
-                    shape = (len(time), NPIX, 3)
-                    
-                    d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
-                    *remains constant as a function of time 
-                    
-                    d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
-                    
-                    d[:,:,2] = starting temperature array
-                    
-                    EX: 
-                    d[458,234,1] means: position wrt to substellar point of parcel # 234 at timestep 458
-                    
-            TEST (bool)
-                Usually False     
-        
-        Calls
-        -------
-            
-            if d is None, calls self.illum() to get d.
-                    
-            
-        Returns
-        -------
-            
-            if TEST = False
-                
-                weight 
-                    visibility array to be applied to flux array in coordinates wrt SSP
-                
-            if TEST = True
-
-                d (3D array)     
-                    coordinates wrt SSP and temperature aray
-                
-                coordsSOP (2D array)
-                    coordinates relative to the suborserver point
-                
-                weight (2D array )
-                    visibility array to be applied to flux array in coordinates wrt SSP
-                    (shape is (#time steps, NPIX))
+#    def illum(self) :
+#
+#        """Creates coordinate matrix wrt substellar point at each point in time.
+#        Creates initial temperature array.
+#        Calculates weight function to be applied to stellar flux to obtain
+#        incident flux a each location on the planet, at each point in time.
+#
+#        Note
+#        ----
+#            DEPENDS ON WADV; CAN'T BE STORED IN __init__
+#            In places where initial temperature is 0, we replace T = 0 with T = 0.1 to avoid overflows.
+#            At t = 0, the planet is at periastron and the substellar point
+#            is located at theta = Pi/2, phi = 0
+#
+#        Parameters
+#        ----------
+#            None
+#
+#        Calls
+#        -------
+#
+#            self.SSP(pmax, steps) to get:
+#
+#                t
+#                    1D time array of lenght pmax * int(Porb/ 24hrs)*steps;
+#                    in seconds
+#
+#                SSP
+#                    1D array, same lenght as t. Gives coordinate of substellar point relative
+#                    to the substellar point at periastron (located at theta = Pi/2, phi = 0).
+#                    Used to rotate the coordinate array array as a function of time .
+#
+#        Returns
+#        -------
+#
+#                d
+#                    3D position and temperature array;
+#
+#                    shape = (len(time), NPIX, 3)
+#
+#                    d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
+#                    *remains constant as a function of time
+#
+#                    d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
+#
+#
+#                    d[:,:,2] = starting temperature array
+#
+#                Fweight
+#                    2-D array that represents the weight applied to the stellar flux
+#                    at each location on the planet to obtain incident flux at each moment in time.
+#                    --- shape is (lenght time, NPIX)
+#
+#
+#            """
+#
+#        #TIME
+#        Nmin = len(self.t) #int((pmaxi)*stepsi)
+#        #tmax = self.Prot*pmaxi
+#        t = self.t
+#
+#
+#        phis = self.phis#.copy()
+#        thetas = self.thetas#.copy()
+#        ###JCS### Trying alternate Start_T below (nothing wrong with these)
+###        #STARTING TEMPERATURES
+###        if self.epsilon >= 20:
+###            T = 0.75*(np.sin(thetas)**0.25)*(np.cos(phis)+np.abs(np.cos(phis)))/2
+###            T[np.where(T<0.1)]=0.1
+###        else:
+###            T = (np.sin(thetas)**0.25)*(np.cos(phis)+np.abs(np.cos(phis)))/2
+###            T[np.where(T<0.05)]=0.05
+#
+#        ###JCS Starting Temps
+#        the_low_case = (np.sin(thetas)*(np.cos(phis) + np.absolute(np.cos(phis)))/2.0)**0.25  # Need **0.25 outside EVERYTHING
+#        the_high_case = (np.sin(thetas)/pi)**0.25
+#        the_scaler = (self.epsilon**1.5)/(1.8 + self.epsilon**1.5)  # Estimated curly epsilon
+#        T = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
+#        T[T<0.1] = 0.1
+#
+#        if self.continueOrbit == True:
+#            T = self.again_Tmap
+#
+#        #3D ARRAY TO CONTAIN EVERYTHING. CALLED IT d
+#        #c= np.array(zip(thetas,phis,T)).reshape(-1,hp.nside2npix(self.NSIDE),3)
+#        c = np.transpose(np.vstack((thetas,phis,T))).reshape(-1,hp.nside2npix(self.NSIDE),3)
+#        d = np.repeat(c,Nmin, axis = 0)
+#
+#
+#
+#        #CREATE THE COORDINATE ARRAY. THERE'S 2 CASES: CIRCULAR ORBIT AND ECCENTRIC ORBIT
+#        if self.eccen == 0.0:
+#            t, zt, SSP, SOP = self.SSP()
+#            "don't need deltaphi here but its good to know what it is"
+#            #deltaphi = (2*pi/self.stepsi)* self.wadv/(2*pi/self.Prot)
+#            d[:,:,1]= (phis)+(SSP.reshape(-1,1))*(np.sign(self.wadv))
+#
+#            #+(deltaphi* np.array(range(0,Nmin)).reshape(-1,1)))%(2*pi)
+#            #-((self.wadv)*t[i] - int(self.wadv*t[i])) #update location of gas parcel
+#
+#
+#        else:
+#            "don't need deltaphi here"
+#            #deltaphi = (2*pi/stepsi)* self.wadv/(2*pi/self.Prot)
+#            t, zt, SSP, SOP = self.SSP()
+#            #d[:,:,1]= (phis)+ ((zt.reshape(-1,1))*(np.sign(self.wadv)))%(2*pi)
+#
+#            d[:,:,1]= (phis)+ (SSP.reshape(-1,1))*(np.sign(self.wadv))
+#            #+deltaphi* np.array(range(0,Nmin)).reshape(-1,1))%(2*pi) #added this to the mix
+#
+#
+#        #ILLUMINATION WEIGHT FUNCTION. WILL GET PASSED TO DE ALONG WITH D THE COORDINATE MATRIX AND THE STUPID TIME MATRIX
+#        Fweight = ((np.cos(d[:,:,1])+ np.abs(np.cos(d[:,:,1])))/2.0 * np.sin(d[:,:,0]))
+#
+#
+#
+#        return d, Fweight
 
     
-            """        
-       
-        #if d is None:
-        #    try :
-        #        d = self.d
-        #    except AttributeError:
-        #        d, Fweight = self.illum()
-       
-        if d is None:
-            d, Fweight = self.illum()
-            try:
-                d = d[self.stitch_point::,:,:]
-                
-               
-            except AttributeError:
-                
-                d = d
+    
+        
+#    def visibility(self, d = None, TEST = False):
+#
+#        """Calculates the visibility of each gas parcel on the planet,
+#        i.e. how much flux is recieved by an
+#        observer from each location on the planet as a function of time.
+#
+#        Note
+#        ----
+#            DEPENDS ON WADV; CAN'T BE STORED IN INIT
+#            weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)
+#
+#
+#        Parameters
+#        ----------
+#
+#            d (3D array, optional)
+#                position and temperature array; is provided as an argument by self.Fobs;
+#                if not provided, self.illum() will be called and the array d will be calculated
+#
+#                    shape = (len(time), NPIX, 3)
+#
+#                    d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
+#                    *remains constant as a function of time
+#
+#                    d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
+#
+#                    d[:,:,2] = starting temperature array
+#
+#                    EX:
+#                    d[458,234,1] means: position wrt to substellar point of parcel # 234 at timestep 458
+#
+#            TEST (bool)
+#                Usually False
+#
+#        Calls
+#        -------
+#
+#            if d is None, calls self.illum() to get d.
+#
+#
+#        Returns
+#        -------
+#
+#            if TEST = False
+#
+#                weight
+#                    visibility array to be applied to flux array in coordinates wrt SSP
+#
+#            if TEST = True
+#
+#                d (3D array)
+#                    coordinates wrt SSP and temperature aray
+#
+#                coordsSOP (2D array)
+#                    coordinates relative to the suborserver point
+#
+#                weight (2D array )
+#                    visibility array to be applied to flux array in coordinates wrt SSP
+#                    (shape is (#time steps, NPIX))
+#
+#
+#            """
+#
+#        #if d is None:
+#        #    try :
+#        #        d = self.d
+#        #    except AttributeError:
+#        #        d, Fweight = self.illum()
+#
+#        if d is None:
+#            d, Fweight = self.illum()
+#            try:
+#                d = d[self.stitch_point::,:,:]
+#
+#
+#            except AttributeError:
+#
+#                d = d
+#
+#        else:
+#
+#            d = d
+#
+#        #t, zt, SSP, SOP = self.SSP(pmax, steps)
+###        t,zt,SSP,SOP = self.SSP()  ###JCS: Will need SOP here, naturally.
+###        SOP_longs = np.transpose(np.tile(SOP,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
+###        zt_longs = np.transpose(np.tile(zt,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
+#
+#        phis = d[:,:,1] # location of gas parcel on planet relative to SSP
+#
+#        thetas = d[:,:,0]
+#
+#
+#        try:
+#            alpha = self.alpha[self.stitch_point::]
+#
+#        except AttributeError:
+#            alpha = self.alpha
+#        #coordsSSP = (phis)
+#        coordsSOP = phis - (180.0 - alpha.reshape(-1,1))*pi/180.0  ###JCS: This was already what I was trying to do just below- duh!
+#
+###        coordsSOP = phis - (zt_longs + pi)  ###JCS: Compare SSP ang. to orb. position (zt+pi=0+pi=pi at t=0 so want phi=pi, etc.)
+#
+#        #2#coordsSOP = phis+(zt%(2*pi)).reshape(-1,1)
+#
+#        #coordsSOP = phis+(zt).reshape(-1,1)+(-alpha[0]+180)*pi/180
+#        #coordsSOP = phis - (SOP - SSP).reshape(-1,1)
+#
+#        weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)  ###JCS: Same as version you're familiar with.
+#
+#        "THIS USES RESULT FROM ILLUM... MAYBE THEY CAN BE TOGETHER???"
+#        if TEST :
+#            return d, coordsSOP, weight
+#        else:
+#            return weight
 
-        else: 
-            
-            d = d
-                
-        #t, zt, SSP, SOP = self.SSP(pmax, steps)
-##        t,zt,SSP,SOP = self.SSP()  ###JCS: Will need SOP here, naturally.
-##        SOP_longs = np.transpose(np.tile(SOP,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
-##        zt_longs = np.transpose(np.tile(zt,(d.shape[1],1)))  ###JCS: Upping to match 'phis' below
-        
-        phis = d[:,:,1] # location of gas parcel on planet relative to SSP
-        
-        thetas = d[:,:,0]
-        
-        
-        try:
-            alpha = self.alpha[self.stitch_point::]
-            
-        except AttributeError:
-            alpha = self.alpha
-        #coordsSSP = (phis)
-        coordsSOP = phis - (180.0 - alpha.reshape(-1,1))*pi/180.0  ###JCS: This was already what I was trying to do just below- duh!
 
-##        coordsSOP = phis - (zt_longs + pi)  ###JCS: Compare SSP ang. to orb. position (zt+pi=0+pi=pi at t=0 so want phi=pi, etc.)
-        
-        #2#coordsSOP = phis+(zt%(2*pi)).reshape(-1,1)
-        
-        #coordsSOP = phis+(zt).reshape(-1,1)+(-alpha[0]+180)*pi/180
-        #coordsSOP = phis - (SOP - SSP).reshape(-1,1)    
-
-        weight = ((np.cos(coordsSOP)+np.abs(np.cos(coordsSOP)))/2.0)*np.sin(thetas)  ###JCS: Same as version you're familiar with.
-
-        "THIS USES RESULT FROM ILLUM... MAYBE THEY CAN BE TOGETHER???"
-        if TEST :
-            return d, coordsSOP, weight
-        else:
-            return weight
-
-        
-        
-        
     def DE(self):
-            
-            
-            """DE that calculates temperature of each gas parcel as a 
-            function of time . Relies on self.illum() to 
-            pass it a time array and coordinates. 
+        """DE that calculates temperature of each gas parcel as a
+        function of time . Relies on self.illum() to
+        pass it a time array and coordinates.
 
-            Note
-            ----
-            Solves the DE by repeatedly adding dT to previous T value. 
-            Might want to change this to a more sophisticated 
-            differential equation solver.
-             
-    
-            Parameters
-            ----------
-            None
-                
-            Calls
-            -------
-            
-            self.illum (pmax, steps, NSIDE) to get:
-                t
-                    1D time array of lenght pmax * int(Porb/ 24hrs)*steps; 
-                    in seconds
-                    (if called by a fitter object it'll take the custom time array)
-                
-                d 
-                    3D position and temperature array;
-                    shape = (len(time), NPIX, 3)
-                    
-                    3 refers to the 3 columns : 
-                    d[:,:,0] = thetas - latitude -- 0 to Pi	 
-                    
-                    d[:,:,1] = phis - longitude -- 0 to Pi	
-                    (at t = 0, the planet is at periastron and the substellar point 
-                    is located at theta = Pi	/2, phi = 0)
-                    
-                    d[:,:,2] = starting temperature array              
-            
-            
-            Returns
-            -------
+        Note
+        ----
+        Solves the DE by repeatedly adding dT to previous T value.
+        Might want to change this to a more sophisticated
+        differential equation solver.
+        
+
+        Parameters
+        ----------
+        None
+        
+        Calls
+        -------
+        
+        self.illum (pmax, steps, NSIDE) to get:
             t
-                if called by fitter object, will return the backend of the time array 
-                (i.e. the part you need for fitting)
+                1D time array of lenght pmax * int(Porb/ 24hrs)*steps;
+                in seconds
+                (if called by a fitter object it'll take the custom time array)
+            
+            d
+                3D position and temperature array;
+                shape = (len(time), NPIX, 3)
                 
-                if called by parcel object will return t unchanged
+                3 refers to the 3 columns :
+                d[:,:,0] = thetas - latitude -- 0 to Pi
                 
-            d 
-                will return the part of the array that matches t, depending on who's calling the function.                
+                d[:,:,1] = phis - longitude -- 0 to Pi
+                (at t = 0, the planet is at periastron and the substellar point
+                is located at theta = Pi	/2, phi = 0)
                 
-                only other change is to replace the starting temperature values
-                with values calculated by the DE
-                
+                d[:,:,2] = starting temperature array
+        
+        
+        Returns
+        -------
+        t
+            if called by fitter object, will return the backend of the time array
+            (i.e. the part you need for fitting)
+            
+            if called by parcel object will return t unchanged
+            
+        d
+            will return the part of the array that matches t, depending on who's calling the function.
+            
+            only other change is to replace the starting temperature values
+            with values calculated by the DE
+            
 
-            """
-            
-            #print "Starting DE"
-
-            t = self.t
-            #d = self.dstart
-            #Fweight  =self.Fweight
-            
-            d, Fweight = self.illum() 
-            
-            
-            if self.eccen == 0.0:
-                
-                    
-                    if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
-                        
-                        #d[:,:,2] = (((1-self.bondA)*Fweight)/self.stef_boltz)**(0.25)
-                        d[:,:,2] = (((1-self.bondA)*Fweight))**(0.25)
-                    else:
-                        'changed this to work with arbitrary time'
-                        #deltaphi = (2*pi/stepsi) * self.wadv/(2*pi/self.Prot) #(i don't think wadv is important in this case)
-                        deltaphi = np.abs(((d[1::,:,1]-d[0:-1:,:,1]))%(-2*pi))
-
-                        
-                        for i in range(1,len(t)):#phis.shape[2]
-                        
-                            #incoming flux is always the same for a circular orbit F(t)/Fmax = 1
-                            
-                            dT =1.0/self.epsilon*(Fweight[i-1]-(d[i-1,:,2])**4 )*(deltaphi[i-1,:]) #calculate change
-                            
-                            d[i,:,2]= d[i-1,:,2]+ dT #update temperature array
-                        
-                        
-                    #toc = time.time()
-                    #print ("Time this took is: " , str(toc-tic), "seconds")
-                        
-                    try:
-                        return t[self.stitch_point::], d[self.stitch_point::,:,:]
-                        
-                    except AttributeError:
-                        return t, d
-                
-                
-                    
-                 
-                
+        """
+        if self.eccen == 0:
+            if (self.epsilon <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
+                self.Tvals_evolve = ((1.0-self.bondA)*illumination)**(0.25)
             else:
-                    
-                        
-                    #self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
-                    'normalized flux -- (minimum radius/ radius(t))**2'   
-                    Fstar = (self.Finc().reshape(-1,1)) #*Fweight
-                 
-                    F = Fstar/(self.stef_boltz*self.Teff**4*(self.Rstar/(self.smaxis*(1-self.eccen)))**2)*Fweight
-                    #F = ((self.smaxis*(1-self.eccen)/self.radius(pmax, steps)[1])**2)
-                    
-                    if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
-                        
-                        d[:,:,2] = (((1-self.bondA)*F)/self.stef_boltz)**(0.25)
+                # This difference is mod -2*pi --> why the negative?
+                delta_phis = np.absolute((self.phis_evolve[1:,:] - self.phis_evolve[:-1,:]) % (-2.0*pi))
                 
-                    else:
-                        "deltat will have to be changed for use in fitting"
-                        #deltat = self.Prot/stepsi
-                        deltat = t[1::]-t[:-1:]
-                        
-                        deltat_ = deltat/self.tau_rad
-                        wrot = (2*pi/self.Prot)* self.wadv/(2*pi/self.Prot)
-                        deltaphi = wrot*deltat 
+                for i in range(1,len(self.timeval)):
+                    # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
+                    delta_Tvals = (1.0/self.epsilon)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_phis[i-1,:]
+                    self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
+        else:
+            # Normalized stellar flux, can clean up becasue A LOT cancels.
+            flux_inc = self.Finc()[:,np.newaxis]
+            flux_max = self.stef_boltz*(self.Teff**4)*((self.Rstar/(self.smaxis*(1.0-self.eccen)))**2)
+            scaled_illum = (flux_inc/flux_max)*self.illumination
+            
+            # Eccentric DE uses t_tilda = t/tau_rad
+            if (self.epsilon <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
+                self.Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)  # Why divided by stef_boltz before??
+            else:
+                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.tau_rad
+                
+                for i in range(1,len(self.timeval)):
+                    delta_Tvals = (scaled_illum[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
+                    self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
                     
-                        for i in range(1,len(t)):
-                                
-                                
-                                dT =(( F[i-1] - (d[i-1,:,2])**4 )* (deltat_)[i-1])
-                                
-                                d[i,:,2]= d[i-1,:,2]+dT #update temperature array
-                            
-                            
-                    
-                    try:
-                        return t[self.stitch_point::], d[self.stitch_point::,:,:]
-                        
-                    except AttributeError:
-                        return t, d
+        return
+        
+        ### ### ###
+        
+#        #print "Starting DE"
+#
+#        t = self.timeval
+#        #d = self.dstart
+#        #Fweight  =self.Fweight
+#
+#        d, Fweight = self.illum()
+#
+#
+#        if self.eccen == 0.0:
+#
+#
+#                if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
+#
+#                    #d[:,:,2] = (((1-self.bondA)*Fweight)/self.stef_boltz)**(0.25)
+#                    d[:,:,2] = (((1-self.bondA)*Fweight))**(0.25)
+#                else:
+#                    'changed this to work with arbitrary time'
+#                    #deltaphi = (2*pi/stepsi) * self.wadv/(2*pi/self.Prot) #(i don't think wadv is important in this case)
+#                    deltaphi = np.abs(((d[1::,:,1]-d[0:-1:,:,1]))%(-2*pi))
+#
+#
+#                    for i in range(1,len(t)):#phis.shape[2]
+#
+#                        #incoming flux is always the same for a circular orbit F(t)/Fmax = 1
+#
+#                        dT =1.0/self.epsilon*(Fweight[i-1]-(d[i-1,:,2])**4 )*(deltaphi[i-1,:]) #calculate change
+#
+#                        d[i,:,2]= d[i-1,:,2]+ dT #update temperature array
+#
+#
+#                #toc = time.time()
+#                #print ("Time this took is: " , str(toc-tic), "seconds")
+#
+#                try:
+#                    return t[self.stitch_point::], d[self.stitch_point::,:,:]
+#
+#                except AttributeError:
+#                    return t, d
+#
+#
+#
+#
+#
+#        else:
+#
+#
+#                #self.stef_boltz*self.Teff**4*(self.Rstar/np.array(self.radius(pmax,steps)[1]))**2
+#                'normalized flux -- (minimum radius/ radius(t))**2'
+#                Fstar = (self.Finc().reshape(-1,1)) #*Fweight
+#
+#                F = Fstar/(self.stef_boltz*self.Teff**4*(self.Rstar/(self.smaxis*(1-self.eccen)))**2)*Fweight
+#                #F = ((self.smaxis*(1-self.eccen)/self.radius(pmax, steps)[1])**2)
+#
+#                if (self.epsilon <= 0.0001) or (self.tau_rad <= 0.0001):
+#
+#                    d[:,:,2] = (((1-self.bondA)*F)/self.stef_boltz)**(0.25)
+#
+#                else:
+#                    "deltat will have to be changed for use in fitting"
+#                    #deltat = self.Prot/stepsi
+#                    deltat = t[1::]-t[:-1:]
+#
+#                    deltat_ = deltat/self.tau_rad
+#                    wrot = (2*pi/self.Prot)* self.wadv/(2*pi/self.Prot)
+#                    deltaphi = wrot*deltat
+#
+#                    for i in range(1,len(t)):
+#
+#
+#                            dT =(( F[i-1] - (d[i-1,:,2])**4 )* (deltat_)[i-1])
+#
+#                            d[i,:,2]= d[i-1,:,2]+dT #update temperature array
+#
+#
+#
+#                try:
+#                    return t[self.stitch_point::], d[self.stitch_point::,:,:]
+#
+#                except AttributeError:
+#                    return t, d
 
     
-    def Fleaving(self, wavelength = 8.0, MAP = False):#, TEST = False):
+    def Fleaving(self,microns=8.0):
         """Calculates outgoing planetary flux (Total and wavelength dependant)
         from the temperature values coming from the DE. 
 
@@ -1130,51 +1333,64 @@ class parcel(object):
                     1D array, contains flux (all wavelengths) integrated over planet surface
                     at each moment in time. Again, not super useful unless you're making figures.
    
-            """
-       
-        wv = wavelength*10**(-6)        
+        """
+        self.DE()  # May want to restructure this.
         
-        t, d = self.DE()
+        bolo_blackbody = self.stef_boltz*((self.Tvals_evolve*self.T0)**4)
+        wavelength = microns*(10**(-6))  # microns to meters
+        xpon = self.planck*self.speed_light/(wavelength*self.boltz*(self.Tvals_evolve*self.T0))
+        ## So bolo and wave units match, leading "pi" is from integral over solid angle.
+        wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
         
+        return bolo_blackbody,wave_blackbody
+    
+    
+        ### ### ###
         
-        'Sometimes this has an overflow problem'
-        
-        
-        a = (2*self.planck*self.speed_light**2/wv**5)
-        
-        b = (self.planck*self.speed_light*10**6)/(wavelength*self.boltz*self.T0)
-
-        Fwv = a* 1/(np.expm1(b/np.array(d[:,:,2])))
-      
-        
-        "Get the flux"
-        dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
-  
-        Fmap_wv = (Fwv *dA)#/Fwvstar
-        
-        Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
-        
-        
-
-        
-        
-            
-        if MAP:
-            Fleavingwv = np.zeros(len(t))
-            Ftotal = np.zeros(len(t))
-            for i in range(len(t)):
-            
-                Fleavingwv[i] = np.sum(Fmap_wv[i,:])
-                Ftotal[i] = np.sum(Ftotal_[i,:])
-            crap, Fmap_wvpix = self.shuffle(d.copy(), Fmap_wv)
-
-            return t, d, Fmap_wv, Fmap_wvpix, Fleavingwv, Ftotal
-            
-        else:
-            return t, d, Fmap_wv
+#
+#        wv = wavelength*10**(-6)
+#
+#        t, d = self.DE()
+#
+#
+#        'Sometimes this has an overflow problem'
+#
+#
+#        a = (2*self.planck*self.speed_light**2/wv**5)
+#
+#        b = (self.planck*self.speed_light*10**6)/(wavelength*self.boltz*self.T0)
+#
+#        Fwv = a* 1/(np.expm1(b/np.array(d[:,:,2])))
+#
+#
+#        "Get the flux"
+#        dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
+#
+#        Fmap_wv = (Fwv *dA)#/Fwvstar
+#
+#        Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
+#
+#
+#
+#
+#
+#
+#        if MAP:
+#            Fleavingwv = np.zeros(len(t))
+#            Ftotal = np.zeros(len(t))
+#            for i in range(len(t)):
+#
+#                Fleavingwv[i] = np.sum(Fmap_wv[i,:])
+#                Ftotal[i] = np.sum(Ftotal_[i,:])
+#            crap, Fmap_wvpix = self.shuffle(d.copy(), Fmap_wv)
+#
+#            return t, d, Fmap_wv, Fmap_wvpix, Fleavingwv, Ftotal
+#
+#        else:
+#            return t, d, Fmap_wv
 
     
-    def Fobs(self, wavelength = 8.0, PRINT = False, MAP = False, BOLO = False, HEMISUM = False):  ###JCS: Added 'HEMISUM' 02/15/17
+    def Fobs(self,microns=8.0,hemi=True,sphere=True):  ###JCS: Added 'HEMISUM' 02/15/17...and now it's gone ;-)
         """ Calculates outgoing planetary flux as seen by an observer (wavelength dependant only).
         
 
@@ -1266,346 +1482,427 @@ class parcel(object):
             If Map = False (default)
             
             t, d, Fwv
-            """
+        """
+        bolo_blackbody,wave_blackbody = self.Fleaving(microns)
         
-        #tic = time.time()
-        #print ("Starting Fobs")
+        unit_area = hp.nside2pixarea(self.NSIDE)*(self.Rplanet**2)
         
-        pmaxi = self.pmaxi
-        #stepsi = self.stepsi
+        # Observer flux (i.e. light curve)
+        flux_bolo_obs = np.sum(self.visibility*bolo_blackbody*unit_area,axis=1)
+        flux_wave_obs = np.sum(self.visibility*wave_blackbody*unit_area,axis=1)
+        
+        # Hemispere flux (i.e. without observer visibility)
+        hemi_visible = (self.visibility > 0)
+        flux_bolo_hemi = np.sum(hemi_visible*bolo_blackbody*unit_area,axis=1)
+        flux_wave_hemi = np.sum(hemi_visible*wave_blackbody*unit_area,axis=1)
+        
+        # Planet flux (i.e. over whole sphere)
+        flux_bolo_planet = np.sum(bolo_blackbody*unit_area,axis=1)
+        flux_wave_planet = np.sum(wave_blackbody*unit_area,axis=1)
+        
+        # Probably want to choose returns at some point.
+        return flux_bolo_obs,flux_wave_obs,flux_bolo_hemi,flux_wave_hemi,flux_bolo_planet,flux_wave_planet
         
         
-        if MAP:
+        ### ### ###
         
-            'call the functions we need'
-            t, d, Fmap_wv, Fmap_wvpix,Fleavingwv, Ftotal = self.Fleaving( wavelength, MAP = True)
-            
-            #weight = self.weight
-            weight = self.visibility(d)
-    
-            crap, weightpix = self.shuffle(d, weight)
-            
-            
-            'start doing what this function does'
+#        #tic = time.time()
+#        #print ("Starting Fobs")
+#
+#        pmaxi = self.pmaxi
+#        #stepsi = self.stepsi
+#
+#
+#        if MAP:
+#
+#            'call the functions we need'
+#            t, d, Fmap_wv, Fmap_wvpix,Fleavingwv, Ftotal = self.Fleaving( wavelength, MAP = True)
+#
+#            #weight = self.weight
+#            weight = self.visibility(d)
+#
+#            crap, weightpix = self.shuffle(d, weight)
+#
+#
+#            'start doing what this function does'
+#
+#            #UNCOMMENT IF YOU WANNA CHECK THAT THE SHUFFLING ISNT DESTROYING ANYTHING
+#            Fmapwvobs = Fmap_wvpix*weightpix
+#            #Fmapwvobs_check = Fmap_wv*weight
+#            Fwv = np.empty(len(t))
+#            #Fwv_check = np.empty(Nmin)
+#            for i in range(len(t)):
+#
+#                Fwv[i] = np.sum(Fmapwvobs[i,:])
+#                #Fwv_check[i] = np.sum(Fmapwvobs_check[i,:])
+#
+#            #print "DO we get the same flux before and after shuffling? "
+#            #print (Fwv == Fwv_check)
+#
+#            if PRINT == True:
+#
+#                fluxwv = np.array(Fwv).reshape(-1,1)
+#                np.savetxt('observedflux_planet'+str(self.steps)+'_steps_per_period_'+str(pmaxi)+'periods_'
+#                           +str(self.NSIDE)+'_NSIDE.out',
+#                           zip( t, fluxwv), header = "time(planetdays),time(s), outgoing flux, outgoing flux per wv")
+#            #toc = time.time()
+#            #print ('Done with Fobs')
+#            #print ('Time Fobs took: ' + str(toc-tic) + 'seconds')
+#
+#            if PRINT == False:
+#                return  t, d, Fmapwvobs, weight, weightpix, Fwv
+#
+#        else:
+#            t, d, Fmap_wv = self.Fleaving(wavelength)
+#            weight = self.visibility(d)
+#            ###JCS: Modified below here
+#
+#            if BOLO == True:
+#                dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
+#                Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
+#                Fmap_total = Ftotal_*weight
+#                Ft = np.sum(Fmap_total, axis = 1)
+#
+#                if HEMISUM == True:  ###JCS: This means 'do you also want to straight-total the flux from each hemisphere you see?'
+#                    hemi = np.copy(weight)  #JCS: Take the visibility...
+#                    hemi[hemi > 0] = 1.0  #JCS: ...and turn it into a simple 'seen/unseen' mask...
+#                    Hmap_total = Ftotal_*hemi
+#                    Hflux = np.sum(Hmap_total, axis = 1)  #JCS: ...so you get the total hemisphere flux WITHOUT THE OBSERVER BIAS
+#                    return t,d,Ft,Hflux
+#                else:
+#                    return t, d, Ft
+#
+#            else:
+#                Fmapwvobs = Fmap_wv*weight
+#                Fwv = np.sum(Fmapwvobs, axis = 1)
+#
+#                if HEMISUM == True:
+#                    hemi = np.copy(weight)
+#                    hemi[hemi > 0] = 1.0
+#                    Hmapwvobs = Fmap_wv*hemi
+#                    Hwvflux = np.sum(Hmapwvobs, axis = 1)
+#                    return t,d,Fwv,Hwvflux
+#                else:
+#                    return t, d, Fwv
 
-            #UNCOMMENT IF YOU WANNA CHECK THAT THE SHUFFLING ISNT DESTROYING ANYTHING
-            Fmapwvobs = Fmap_wvpix*weightpix
-            #Fmapwvobs_check = Fmap_wv*weight
-            Fwv = np.empty(len(t))
-            #Fwv_check = np.empty(Nmin)
-            for i in range(len(t)):
+    ### You know, I don't think this is needed at all.
+#    def shuffle (self, d = None, quantity = None):
+#        """ This function will take an array for a quantity as well as it's coordinates
+#        and rearrange it so it will correspond to healpy pixel number.
+#
+#
+#        Note
+#        ----
+#        Normally you would provide a quantity defined on different surface patches
+#        of the planet and the matching coordinate array, and this function will rearrange it to
+#        correspong to pixel number.
+#
+#        For testing purposes, if these are not provided, shuffle() with get the d array from the DE
+#        and shuffle the temperature values.
+#
+#        Parameters
+#        ----------
+#        d
+#            3D numpy array. see DE()
+#        quantity
+#            2D array [time, value that needs rearranging]
+#
+#
+#        Calls
+#        -------
+#
+#        self.DE(pmax, steps, NSIDE) if d and quantity is not provided.
+#
+#
+#
+#        Returns
+#        -------
+#
+#        d
+#            unchanged
+#
+#        quantity
+#            2D array[time, values for pixel];
+#            quantity rearranged for drawing on a hp.mollview map.
+#
+#        """
+#
+#        if (d is None) and (quantity is None):
+#            t, d = self.DE()
+#            dd = np.array(d.copy())
+#            quantity = np.array(d[:,:,2].copy())
+#
+#        else:
+#            dd = np.array(d.copy())
+#
+#        timesteps = len(dd[:,0,0])
+#            #quantity = quantity
+#
+#        #order = (hp.ang2pix(NSIDE, d[:,:,0], d[:,:,1])).astype(int)
+#        #print order.shape
+#        #quantity = quantity[order]
+#        order = np.zeros((timesteps, hp.nside2npix(self.NSIDE)))
+#        for i in range(timesteps):
+#            order[i,:] = (hp.ang2pix(self.NSIDE, dd[i,:,0], dd[i,:,1])).astype(int)
+#
+#            quantity[i,:] = quantity[i,order[i,:].astype(int)]
+#
+#        print("shuffled quantity" )
+#        return d, quantity
+
     
-                Fwv[i] = np.sum(Fmapwvobs[i,:])
-                #Fwv_check[i] = np.sum(Fmapwvobs_check[i,:])
-                
-            #print "DO we get the same flux before and after shuffling? " 
-            #print (Fwv == Fwv_check)
-    
-            if PRINT == True:
-                
-                fluxwv = np.array(Fwv).reshape(-1,1)
-                np.savetxt('observedflux_planet'+str(self.steps)+'_steps_per_period_'+str(pmaxi)+'periods_'
-                           +str(self.NSIDE)+'_NSIDE.out', 
-                           zip( t, fluxwv), header = "time(planetdays),time(s), outgoing flux, outgoing flux per wv")
-            #toc = time.time()
-            #print ('Done with Fobs')
-            #print ('Time Fobs took: ' + str(toc-tic) + 'seconds')
+    def Calc_MaxDuskDawn_Temps(self):
+        """Something.
             
-            if PRINT == False:
-                return  t, d, Fmapwvobs, weight, weightpix, Fwv
+        Something else.
+        
+        """
+        start_time = int(self.stepsPerRot*(self.numOrbs-1))
+        
+        # For now, each gives you values at every time step.
+        # Can do an extra check to get a single value.
+        max_args = np.argmax(self.Tvals_evolve[start_time:,:],axis=1)
+        max_angles = hp.pix2ang(self.NSIDE,max_args)
+        
+        Ttilda_max = np.amax(self.Tvals_evolve[start_time:,:],axis=1)
+        Ttilda_dusk = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,pi/2.0)]
+        Ttilda_dawn = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,-pi/2.0)]
     
+        return max_angles,Ttilda_max,Ttilda_dusk,Ttilda_dawn
+    
+#    def findT (self):
+#        """ Finds numeric approximation of Max/ Min temperature on the planet.
+#        !!! DOES NOT WORK AS EXPECTED!!! should fix
+#
+#        Note
+#        ----
+#
+#        ONLY WORKS FOR CIRCULAR ORBITS.
+#
+#        Used for testing. Supposed to compare to the analytic approximations in
+#        the functions phi-max, Tmax, Tdusk, Tdawn, to
+#        check that the DE is working well. Or to check that the analytic approx.
+#        is working well.
+#
+#        Parameters
+#        ----------
+#        None
+#
+#        Calls
+#        -------
+#
+#        self.DE(), the 0 eccentricity branch.
+#
+#
+#
+#        Returns
+#        -------
+#
+#        Tmax (float)
+#            Maximum temperature on the planet in T/T0
+#
+#        Tdawn
+#            Dawn temperature on the planet in T/T0
+#
+#        Tdusk
+#            Dusk temperature on the planet in T/T0
+#
+#        """
+#
+#        #tmax = self.Prot*pmax
+#        #Nmin = int((pmax)*300)
+#        #deltat = tmax/Nmin
+#        pmaxi = self.pmaxi
+#        stepsi = self.stepsi
+#
+#        t,d = self.DE()
+#
+#
+#        #deltaphi = 2.0*pi/stepsi
+#        Tmax = np.max(np.max(d[int(self.stepsi*(self.pmaxi-1))::,:,2],axis =1))
+#        #Tmax = np.max(d[int(stepsi*(pmaxi-2))::,:,2])
+#
+#
+#        #for i in range(int(stepsi*(pmaxi-2)), int(stepsi*pmaxi)):
+#
+#
+#
+#                #if deltaphi >= np.abs(1.5*pi - (d[i,np.where(np.abs(d[i,:,0]-0.5*pi))< 0.1, np.where(np.abs(d[i,:,1]-1.5*pi))< 0.1]):
+#                    #print np.abs(1.5 - phi[i])*pi, 'dawn difference'
+#                    #Tdawn = T[i]
+#        Tdawn = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, -pi/2),2])
+#
+#        Tdusk = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, pi/2),2])
+#
+#
+#                #if deltaphi >= np.abs(2.5 - (phi[i]-2*(pmaxi-2))):
+#                    #print np.abs(2.5 - phi[i])*pi, 'dusk difference'
+#
+#                    #Tdusk = T[i]
+#
+#        return Tmax, Tdawn, Tdusk
+
+    
+    def _max_temper(self,eps):
+        """Something."""
+        x_0 = 2.9685
+        x_1 = 7.0623
+        x_2 = 1.1756
+        x_3 = -0.2958
+        x_4 = 0.1846
+        xpon = -x_2 + (x_3/(1.0 + (x_4*eps)))
+        func = x_0/(1.0 + x_1*(eps**xpon))
+        return np.cos(np.arctan(func))**(0.25)
+    
+    def _dusk_temper(self,eps):
+        """Something."""
+        y_0 = 0.69073
+        y_1 = 7.5534
+        return ((pi**2)*((1.0 + (y_0/eps))**(-8)) + y_1*(eps**(-8/7)))**(-1/8)
+    
+    def _dawn_temper(self,eps):
+        """Something."""
+        return (pi + (3.0*pi/eps)**(4/3))**(-1/4)
+    
+    
+    def Approx_MaxDuskDawn_Temps(self,epsilon="self"):
+        """Blah blah blah
+        
+        Some bozo.
+        
+        """
+        if isinstance(epsilon,(float,int)):
+            eps = epsilon
         else:
-            t, d, Fmap_wv = self.Fleaving(wavelength)
-            weight = self.visibility(d)
-            ###JCS: Modified below here
-            
-            if BOLO == True:
-                dA = hp.nside2pixarea(self.NSIDE)*self.Rplanet**2
-                Ftotal_ = (self.stef_boltz * (d[:,:,2]*self.T0)**4)*dA
-                Fmap_total = Ftotal_*weight
-                Ft = np.sum(Fmap_total, axis = 1)
-                
-                if HEMISUM == True:  ###JCS: This means 'do you also want to straight-total the flux from each hemisphere you see?'
-                    hemi = np.copy(weight)  #JCS: Take the visibility...
-                    hemi[hemi > 0] = 1.0  #JCS: ...and turn it into a simple 'seen/unseen' mask...
-                    Hmap_total = Ftotal_*hemi
-                    Hflux = np.sum(Hmap_total, axis = 1)  #JCS: ...so you get the total hemisphere flux WITHOUT THE OBSERVER BIAS
-                    return t,d,Ft,Hflux
-                else:
-                    return t, d, Ft
-                
-            else:
-                Fmapwvobs = Fmap_wv*weight
-                Fwv = np.sum(Fmapwvobs, axis = 1)
-                
-                if HEMISUM == True:
-                    hemi = np.copy(weight)
-                    hemi[hemi > 0] = 1.0
-                    Hmapwvobs = Fmap_wv*hemi
-                    Hwvflux = np.sum(Hmapwvobs, axis = 1)
-                    return t,d,Fwv,Hwvflux
-                else:
-                    return t, d, Fwv
-
-                    
-    def shuffle (self, d = None, quantity = None):
-        """ This function will take an array for a quantity as well as it's coordinates
-        and rearrange it so it will correspond to healpy pixel number.
+            eps = self.epsilon
+        
+        # Each gives you single T values.
+        Ttilda_max = self._max_temper(eps)
+        Ttilda_dusk = self._dusk_temper(eps)
+        Ttilda_dawn = self._dawn_temper(eps)
+        
+        return Ttilda_max,Ttilda_dusk,Ttilda_dawn
     
 
-        Note
-        ----
-        Normally you would provide a quantity defined on different surface patches 
-        of the planet and the matching coordinate array, and this function will rearrange it to
-        correspong to pixel number.
-        
-        For testing purposes, if these are not provided, shuffle() with get the d array from the DE
-        and shuffle the temperature values. 
+#    def phi_max(self,eps):
+#
+#        """ Finds analytic approximation for location of  Max temperature on the planet
+#        for a circular orbit. Location is expressed in local stellar time.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        phi (rads)
+#            Longitude at which gas reaches maximum temperature on planet.
+#
+#
+#        """
+#
+#        x0 = 2.9685
+#        x1 = 7.0623
+#        x2 = 1.1756
+#        x3 = -0.2958
+#        x4 = 0.1846
+#        f = x0*(1.0+x1*eps**(-x2+(x3/(1.0+x4*eps))))**(-1.0)
+#        return np.arctan(f)
+#
+#
+#
+#    def Tmax (self,eps):
+#        """ Finds analytic approximation for Max temperature on the planet
+#        for a circular orbit.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        Tmax
+#            Theoretical max temperature on planet in T/T0.
+#
+#        """
+#
+#        return np.cos(self.phi_max(eps))**(0.25)
+#
+#
+#    def Tdusk (self,eps):
+#        """ Finds analytic approximation for temperature at dusk on the planet
+#        for a circular orbit.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        Tdusk
+#            Theoretical temperature at dusk on planet (T/T0.)
+#
+#        """
+#
+#        y0 = 0.69073
+#        y1 = 7.5534
+#        f = (pi**2*(1.0+y0/eps)**(-8.0) + y1*eps**(-8.0/7.0))**(-1.0/8.0)
+#        return f
+#
+#    def Tdawn (self,eps):
+#        """ Finds analytic approximation for temperature at dawn on the planet
+#        for a circular orbit.
+#
+#
+#        Note
+#        ----
+#        Used for testing. Only works for circular orbits.
+#
+#
+#        Parameters
+#        ----------
+#
+#        eps (float)
+#            efficiency parameter
+#
+#        Returns
+#        -------
+#
+#        Tdawn
+#            Theoretical temperature at dawn on planet (T/T0.)
+#
+#        """
+#
+#        f = (pi + (3*pi/eps)**(4.0/3.0))**(-0.25)
+#        return f
 
-        Parameters
-        ----------
-        d
-            3D numpy array. see DE()
-        quantity
-            2D array [time, value that needs rearranging] 
-        
-
-        Calls
-        -------
-        
-        self.DE(pmax, steps, NSIDE) if d and quantity is not provided.
-
-
-   
-        Returns
-        -------
-   
-        d 
-            unchanged
-            
-        quantity 
-            2D array[time, values for pixel]; 
-            quantity rearranged for drawing on a hp.mollview map. 
-
-        """
-
-        if (d is None) and (quantity is None):        
-            t, d = self.DE()
-            dd = np.array(d.copy())
-            quantity = np.array(d[:,:,2].copy())
-            
-        else:
-            dd = np.array(d.copy())
-        
-        timesteps = len(dd[:,0,0])
-            #quantity = quantity
-        
-        #order = (hp.ang2pix(NSIDE, d[:,:,0], d[:,:,1])).astype(int)
-        #print order.shape
-        #quantity = quantity[order]
-        order = np.zeros((timesteps, hp.nside2npix(self.NSIDE)))
-        for i in range(timesteps):        
-            order[i,:] = (hp.ang2pix(self.NSIDE, dd[i,:,0], dd[i,:,1])).astype(int)
-                    
-            quantity[i,:] = quantity[i,order[i,:].astype(int)]
-        
-        print("shuffled quantity" )
-        return d, quantity
-            
-    
-    def findT (self):
-        """ Finds numeric approximation of Max/ Min temperature on the planet.
-        !!! DOES NOT WORK AS EXPECTED!!! should fix
-
-        Note
-        ----
-        
-        ONLY WORKS FOR CIRCULAR ORBITS.
-        
-        Used for testing. Supposed to compare to the analytic approximations in 
-        the functions phi-max, Tmax, Tdusk, Tdawn, to
-        check that the DE is working well. Or to check that the analytic approx. 
-        is working well. 
-
-        Parameters
-        ----------
-        None
-
-        Calls
-        -------
-        
-        self.DE(), the 0 eccentricity branch.
-
-
-   
-        Returns
-        -------
-   
-        Tmax (float)
-            Maximum temperature on the planet in T/T0
-            
-        Tdawn 
-            Dawn temperature on the planet in T/T0
-        
-        Tdusk
-            Dusk temperature on the planet in T/T0
-
-        """
-        
-        #tmax = self.Prot*pmax
-        #Nmin = int((pmax)*300)
-        #deltat = tmax/Nmin
-        pmaxi = self.pmaxi
-        stepsi = self.stepsi
-        
-        t,d = self.DE()
-        
-        
-        #deltaphi = 2.0*pi/stepsi
-        Tmax = np.max(np.max(d[int(self.stepsi*(self.pmaxi-1))::,:,2],axis =1))
-        #Tmax = np.max(d[int(stepsi*(pmaxi-2))::,:,2])
-        
-            
-        #for i in range(int(stepsi*(pmaxi-2)), int(stepsi*pmaxi)):
-            
-            
-            
-                #if deltaphi >= np.abs(1.5*pi - (d[i,np.where(np.abs(d[i,:,0]-0.5*pi))< 0.1, np.where(np.abs(d[i,:,1]-1.5*pi))< 0.1]):
-                    #print np.abs(1.5 - phi[i])*pi, 'dawn difference' 
-                    #Tdawn = T[i]
-        Tdawn = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, -pi/2),2])
-                
-        Tdusk = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, pi/2),2])
-
-                
-                #if deltaphi >= np.abs(2.5 - (phi[i]-2*(pmaxi-2))):
-                    #print np.abs(2.5 - phi[i])*pi, 'dusk difference'
-
-                    #Tdusk = T[i]
-            
-        return Tmax, Tdawn, Tdusk
-        
-
-
-    def phi_max(self,eps):
-        
-        """ Finds analytic approximation for location of  Max temperature on the planet
-        for a circular orbit. Location is expressed in local stellar time.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        phi (rads)
-            Longitude at which gas reaches maximum temperature on planet.
-
-
-        """
-                       
-        x0 = 2.9685
-        x1 = 7.0623
-        x2 = 1.1756
-        x3 = -0.2958
-        x4 = 0.1846
-        f = x0*(1.0+x1*eps**(-x2+(x3/(1.0+x4*eps))))**(-1.0)
-        return np.arctan(f)
-
-
-
-    def Tmax (self,eps):
-        """ Finds analytic approximation for Max temperature on the planet
-        for a circular orbit.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        Tmax
-            Theoretical max temperature on planet in T/T0.
-
-        """
-            
-        return np.cos(self.phi_max(eps))**(0.25)
-
-
-    def Tdusk (self,eps):
-        """ Finds analytic approximation for temperature at dusk on the planet
-        for a circular orbit.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        Tdusk
-            Theoretical temperature at dusk on planet (T/T0.)
-
-        """
-            
-        y0 = 0.69073
-        y1 = 7.5534
-        f = (pi**2*(1.0+y0/eps)**(-8.0) + y1*eps**(-8.0/7.0))**(-1.0/8.0)
-        return f
-
-    def Tdawn (self,eps):
-        """ Finds analytic approximation for temperature at dawn on the planet
-        for a circular orbit.
-    
-
-        Note
-        ----
-        Used for testing. Only works for circular orbits.
-        
-
-        Parameters
-        ----------
-
-        eps (float) 
-            efficiency parameter
-
-        Returns
-        -------
-   
-        Tdawn
-            Theoretical temperature at dawn on planet (T/T0.)
-
-        """
-            
-        f = (pi + (3*pi/eps)**(4.0/3.0))**(-0.25)
-        return f  
-        
     
 class fitter (parcel):
     ''' Subclass of parcel class. The purpose of this is to return flux values suitable for fitting data.
@@ -1685,11 +1982,11 @@ class fitter (parcel):
 
         self.get_time_array()
         
-        t, radius, ang_vel, alpha, f = self.radiussF()
+        t, radius, ang_vel, alpha, frac_litup = self.radiussF()
         self.radius = radius
         self.ang_vel = ang_vel
         self.alpha = alpha
-        self.f = f
+        self.frac_litup = frac_litup
         
 
         
@@ -1725,8 +2022,8 @@ class fitter (parcel):
             
             times = self.ts #needs to have the transit at t = 0!!!
             print(times[0])            
-            tr = np.where(self.f <0.0001)[0]
-            #ec = np.where(abs(self.f-1) < 0.0001)[0]
+            tr = np.where(self.frac_litup <0.0001)[0]
+            #ec = np.where(abs(self.frac_litup-1) < 0.0001)[0]
             transit_t = (self.time[tr])[-1]
             print('transit_t is', transit_t)
             #eclipse_t = np.array(self.t[ec])
@@ -1802,12 +2099,12 @@ class fitter (parcel):
         
         pos, TA = ke.xyzPos(t,getTA = True)
         
-        # i want this to be 0 at transit. f = 90-w at transit so alpha = 90-w - f
-        alpha = (90-self.arg_peri) - np.array(TA)*57.2958
+        # i want this to be 0 at transit. TA = 90-w at transit so alpha = 90-w - TA
+        alpha = (90-self.arg_peri) - np.degrees(np.array(TA))
         
-        f = 0.5*(1-np.cos(alpha*pi/180.0))
+        frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
         
-        return t, radius, ang_vel, alpha, f
+        return t, radius, ang_vel, alpha, frac_litup
         
     
 if __name__ == '__main__':
