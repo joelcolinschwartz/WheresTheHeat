@@ -574,38 +574,73 @@ class parcel(object):
 #            coords[i,:]=(np.array(hp.pix2ang(self.NSIDE, i)))
 #        self.phis = coords[:,1]
 #        self.thetas = coords[:,0]
-       
-    
-    def print_stuff(self):
-            """Simply prints the planetary characteristics that you assigned to your object,
-            as well as the ones that were calculated from the same information; Takes no arguments, 
-            returns nothing. """
+
+    def Info_Print(self):
+        """Blah blah blah."""
+        # Name
+        print('Below are some parameters you are using to model {}.'.format(self.name))
+        print('')
         
-            print("""Name  = {0} (Name of model)
-                    Teff = {1} K (Temperature Star)
-                    Rstar = {2} R-sun (Radius Star in solar radii)
-                    Rplanet = {3} R-sun (Radius Planet in solar radii)
-                    a = {4} AU (semimajor axis)
-                    e = {5} (eccentricity)
-                    argp = {6} #angle betwen periatron and transit in degrees
-                    A = {7} (Bond Albedo)
-                    P = {8} days (period of rotation of planet) **might need fixing
-                    Porb = {9} days (orbital period of planet)
-                    wadv = {10} - units of angular frequency 2Pi/planetperiod *wadv??
-                    T0 = {11} K (Temperature of substellar point at periastron)
-                    tau_rad = {12} hrs (radiative time scale)
-                    epsilon = {13} dimensionless circulation efficeincy param
-                    default rotationsPerOrbit = {14} #used for giving the default time lenght for DE
-                    **** all of these are converted to SI units but they need 
-                    to be entered in the units mentioned here ***
-                    """.format (self.name, self.Teff, self.Rstar/self.radius_sun, self.Rplanet/self.radius_sun,
-                                self.smaxis/self.astro_unit, self.eccen, self.arg_peri,
-                                self.bondA,
-                                self.Prot/self.sec_per_day, self.Porb/self.sec_per_day,
-                                self.wadv*self.Prot/ (2*pi),
-                                self.T0, self.tau_rad/ 3600.0, 
-                                self.epsilon, self.rotationsPerOrbit))
-                                
+        # Rstar, Teff
+        form_cols = '{:^16} {:^18}'
+        print(form_cols.format('R_star (solar)','T_effective (K)'))
+        form_cols = '{:^16.2f} {:^18.1f}'
+        print(form_cols.format(self.Rstar/self.radius_sun,self.Teff))
+        print('')
+        
+        # Rplanet, Bond, smaxis, T0
+        form_cols = '{:^20} {:^14} {:^16} {:^20}'
+        print(form_cols.format('R_planet (Jupiter)','Bond albedo','Semimajor (AU)','T_irradiation (K)'))
+        form_cols = '{:^20.2f} {:^14.2f} {:^16.3f} {:^20.1f}'
+        print(form_cols.format(self.Rplanet/self.radius_jupiter,self.bondA,self.smaxis/self.astro_unit,self.T0))
+        print('')
+        
+        # Porb, Prot, eccen, argp
+        form_cols = '{:^14} {:^14} {:^14} {:^24}'
+        print(form_cols.format('P_orb (days)','P_rot (days)','Eccentricity','Arg. periastron (deg.)'))
+        form_cols = '{:^14.2f} {:^14.2f} {:^14.3f} {:^24.1f}'
+        print(form_cols.format(self.Porb/self.sec_per_day,self.Prot/self.sec_per_day,self.eccen,self.arg_peri))
+        print('')
+        
+        # wadv, tau_rad, epsilon
+        form_cols = '{:^16} {:^22} {:^10}'
+        print(form_cols.format('Advective freq.','Radiative time (hrs)','Epsilon'))
+        form_cols = '{:^16.3f} {:^22.3f} {:^10.3f}'
+        print(form_cols.format(self.wadv,self.tau_rad/3600.0,self.epsilon))
+        
+        return
+    
+    
+#    def print_stuff(self):
+#            """Simply prints the planetary characteristics that you assigned to your object,
+#            as well as the ones that were calculated from the same information; Takes no arguments,
+#            returns nothing. """
+#
+#            print("""-Name  = {0} (Name of model)
+#                    -Teff = {1} K (Temperature Star)
+#                    -Rstar = {2} R-sun (Radius Star in solar radii)
+#                    -Rplanet = {3} R-sun (Radius Planet in solar radii)
+#                    -a = {4} AU (semimajor axis)
+#                    -e = {5} (eccentricity)
+#                    -argp = {6} #angle betwen periatron and transit in degrees
+#                    -A = {7} (Bond Albedo)
+#                    -P = {8} days (period of rotation of planet) **might need fixing
+#                    -Porb = {9} days (orbital period of planet)
+#                    -wadv = {10} - units of angular frequency 2Pi/planetperiod *wadv??
+#                    -T0 = {11} K (Temperature of substellar point at periastron)
+#                    -tau_rad = {12} hrs (radiative time scale)
+#                    -epsilon = {13} dimensionless circulation efficeincy param
+#                    default rotationsPerOrbit = {14} #used for giving the default time lenght for DE
+#                    **** all of these are converted to SI units but they need
+#                    to be entered in the units mentioned here ***
+#                    """.format (self.name, self.Teff, self.Rstar/self.radius_sun, self.Rplanet/self.radius_sun,
+#                                self.smaxis/self.astro_unit, self.eccen, self.arg_peri,
+#                                self.bondA,
+#                                self.Prot/self.sec_per_day, self.Porb/self.sec_per_day,
+#                                self.wadv*self.Prot/ (2*pi),
+#                                self.T0, self.tau_rad/ 3600.0,
+#                                self.epsilon, self.rotationsPerOrbit))
+
      
     """ FUNCTIONS FOR DEFINING THE PLANET CONDITIONS, STELLAR FLUX """
        
@@ -1553,71 +1588,71 @@ class parcel(object):
 #                else:
 #                    return t, d, Fwv
 
-    ### NOT SURE YET IF I WANT TO KEEP THIS METHOD.
-    def shuffle (self, d = None, quantity = None):
-        """ This function will take an array for a quantity as well as it's coordinates
-        and rearrange it so it will correspond to healpy pixel number.
-    
+    ### You know, I don't think this is needed at all.
+#    def shuffle (self, d = None, quantity = None):
+#        """ This function will take an array for a quantity as well as it's coordinates
+#        and rearrange it so it will correspond to healpy pixel number.
+#
+#
+#        Note
+#        ----
+#        Normally you would provide a quantity defined on different surface patches
+#        of the planet and the matching coordinate array, and this function will rearrange it to
+#        correspong to pixel number.
+#
+#        For testing purposes, if these are not provided, shuffle() with get the d array from the DE
+#        and shuffle the temperature values.
+#
+#        Parameters
+#        ----------
+#        d
+#            3D numpy array. see DE()
+#        quantity
+#            2D array [time, value that needs rearranging]
+#
+#
+#        Calls
+#        -------
+#
+#        self.DE(pmax, steps, NSIDE) if d and quantity is not provided.
+#
+#
+#
+#        Returns
+#        -------
+#
+#        d
+#            unchanged
+#
+#        quantity
+#            2D array[time, values for pixel];
+#            quantity rearranged for drawing on a hp.mollview map.
+#
+#        """
+#
+#        if (d is None) and (quantity is None):
+#            t, d = self.DE()
+#            dd = np.array(d.copy())
+#            quantity = np.array(d[:,:,2].copy())
+#
+#        else:
+#            dd = np.array(d.copy())
+#
+#        timesteps = len(dd[:,0,0])
+#            #quantity = quantity
+#
+#        #order = (hp.ang2pix(NSIDE, d[:,:,0], d[:,:,1])).astype(int)
+#        #print order.shape
+#        #quantity = quantity[order]
+#        order = np.zeros((timesteps, hp.nside2npix(self.NSIDE)))
+#        for i in range(timesteps):
+#            order[i,:] = (hp.ang2pix(self.NSIDE, dd[i,:,0], dd[i,:,1])).astype(int)
+#
+#            quantity[i,:] = quantity[i,order[i,:].astype(int)]
+#
+#        print("shuffled quantity" )
+#        return d, quantity
 
-        Note
-        ----
-        Normally you would provide a quantity defined on different surface patches 
-        of the planet and the matching coordinate array, and this function will rearrange it to
-        correspong to pixel number.
-        
-        For testing purposes, if these are not provided, shuffle() with get the d array from the DE
-        and shuffle the temperature values. 
-
-        Parameters
-        ----------
-        d
-            3D numpy array. see DE()
-        quantity
-            2D array [time, value that needs rearranging] 
-        
-
-        Calls
-        -------
-        
-        self.DE(pmax, steps, NSIDE) if d and quantity is not provided.
-
-
-   
-        Returns
-        -------
-   
-        d 
-            unchanged
-            
-        quantity 
-            2D array[time, values for pixel]; 
-            quantity rearranged for drawing on a hp.mollview map. 
-
-        """
-
-        if (d is None) and (quantity is None):        
-            t, d = self.DE()
-            dd = np.array(d.copy())
-            quantity = np.array(d[:,:,2].copy())
-            
-        else:
-            dd = np.array(d.copy())
-        
-        timesteps = len(dd[:,0,0])
-            #quantity = quantity
-        
-        #order = (hp.ang2pix(NSIDE, d[:,:,0], d[:,:,1])).astype(int)
-        #print order.shape
-        #quantity = quantity[order]
-        order = np.zeros((timesteps, hp.nside2npix(self.NSIDE)))
-        for i in range(timesteps):        
-            order[i,:] = (hp.ang2pix(self.NSIDE, dd[i,:,0], dd[i,:,1])).astype(int)
-                    
-            quantity[i,:] = quantity[i,order[i,:].astype(int)]
-        
-        print("shuffled quantity" )
-        return d, quantity
-    
     
     def Calc_MaxDuskDawn_Temps(self):
         """Something.
