@@ -163,8 +163,8 @@ class parcel(object):
         ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=180.0,i=90.0,w=self.arg_peri)
         
         # Make time array
-        tmax = self.Porb*self.pmaxi
-        Nmin = int(self.pmaxi*self.stepsi)
+        tmax = self.Porb*self.numOrbs
+        Nmin = int(self.numOrbs*self.stepsPerRot)
         if self.continueOrbit:
             timeval = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
         else:
@@ -333,13 +333,12 @@ class parcel(object):
         return
     
     
-    def __init__(self, name = 'HotWaterEarth', Teff =6000.0, Rstar = 1.0, Mstar = 1.5, 
-                 Rplanet = 1.0870, a = 0.05, 
-                 e = 0.1, argp = 0,
-                 motions='calc', orbval=1.0, rotval=1.0,
-                 A = 0, Porb = -1,
-                 wadv = 2, tau_rad = 20, epsilon = None, pmax = 3, steps = 300, NSIDE = 8,
-                 again_Tmap = None,again_t = 0,continueOrbit = False):
+    def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
+                 Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
+                 motions='calc',orbval=1.0,rotval=1.0,
+                 tau_rad=12.0,epsilon=1.0,
+                 numOrbs=3,stepsPerRot=360,NSIDE=8,
+                 again_Tmap=False,again_t=0,continueOrbit=False):
         
         """The __init__ method allows to set attributes unique to each parcel instance.
         It takes some parameters in the units specified in the docstring. Some are 
@@ -468,11 +467,11 @@ class parcel(object):
         self.Rstar = Rstar*self.radius_sun  # star radius
         self.Mstar = Mstar*self.mass_sun # star mass
         self.Rplanet = Rplanet*self.radius_jupiter  # planet mass
-        self.smaxis = a*self.astro_unit  # semimajor axis
-        self.eccen = e  # eccentricity
-        self.arg_peri = argp  # angle betwen periastron and transit (degrees)
+        self.smaxis = smaxis*self.astro_unit  # semimajor axis
+        self.eccen = eccen  # eccentricity
+        self.arg_peri = arg_peri  # angle betwen periastron and transit (degrees)
         
-        self.bondA = A  # planet Bond albedo
+        self.bondA = bondA  # planet Bond albedo
 
         if motions == 'calc':
             self._period_calc()
@@ -499,11 +498,9 @@ class parcel(object):
             self.epsilon = abs(self.wadv)*tau_rad
         
         # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
-        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1)) #used for giving the default time length for DE
-        self.pmax = pmax
-        self.steps = steps
-        self.pmaxi = self.pmax ###JCS num. of orb. periods  #number of rotational periods we will integrate for
-        self.stepsi = self.steps * self.rotationsPerOrbit ###JCS steps per orbit  #steps per rotational period
+        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1))  # For the default time length
+        self.numOrbs = numOrbs  # Num. of orb. periods
+        self.stepsPerRot = stepsPerRot*self.rotationsPerOrbit  # Steps per orbit
         
         ### JCS Things - want to make these automatic eventually.
         self.again_Tmap = again_Tmap
@@ -581,11 +578,11 @@ class parcel(object):
         print('Below are some parameters you are using to model {}.'.format(self.name))
         print('')
         
-        # Rstar, Teff
-        form_cols = '{:^16} {:^18}'
-        print(form_cols.format('R_star (solar)','T_effective (K)'))
-        form_cols = '{:^16.2f} {:^18.1f}'
-        print(form_cols.format(self.Rstar/self.radius_sun,self.Teff))
+        # Rstar, Mstar, Teff
+        form_cols = '{:^16} {:^16} {:^18}'
+        print(form_cols.format('R_star (solar)','M_star (solar)','T_effective (K)'))
+        form_cols = '{:^16.2f} {:^16.2f} {:^18.1f}'
+        print(form_cols.format(self.Rstar/self.radius_sun,self.Mstar/self.mass_sun,self.Teff))
         print('')
         
         # Rplanet, Bond, smaxis, T0
@@ -1660,7 +1657,7 @@ class parcel(object):
         Something else.
         
         """
-        start_time = int(self.stepsi*(self.pmaxi-1))
+        start_time = int(self.stepsPerRot*(self.numOrbs-1))
         
         # For now, each gives you values at every time step.
         # Can do an extra check to get a single value.
