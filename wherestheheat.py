@@ -160,11 +160,14 @@ class parcel(object):
             0.5*(1-np.cos(alpha*pi/180.0))
             
         """
-        ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=180.0,i=90.0,w=self.arg_peri)
+        # All orbits are 90 degree inclination, or edge-on.
+        # That isn't important for KeplerEllipse, so we just use i = 0 degrees.
+        ### OH BOY, NEED TO LOOK AT "tau" HERE, THE TIME OF PERIAPSIS PASSAGE!!!!!!
+        ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,i=0,w=self.arg_peri)  # Omega=180.0,i=90.0
         
         # Make time array
         tmax = self.Porb*self.numOrbs
-        Nmin = int(self.numOrbs*self.stepsPerRot)
+        Nmin = int(self.numOrbs*self.stepsPerOrbit)
         if self.continueOrbit:
             timeval = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
         else:
@@ -178,8 +181,9 @@ class parcel(object):
         # TA == true anomaly
         pos,TA = ke.xyzPos(timeval,getTA=True)
         
-        # Want 0 at transit and TA = 90-w at transit, so alpha = 90-w - TA
-        alpha = (90.0-self.arg_peri) - np.degrees(np.array(TA))
+        # Want alpha = 0 at transit and TA = 90-w at transit, so alpha = w-90 + TA
+        ### COME BACK AND DOUBLE-CHECK THIS CRAP.
+        alpha = (self.arg_peri-90.0) + np.degrees(np.array(TA))
         frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
             
         self.timeval = timeval
@@ -187,6 +191,8 @@ class parcel(object):
         self.ang_vel = ang_vel
         self.alpha = alpha
         self.frac_litup = frac_litup
+        
+        self.TA = TA  # TEST TEST TEST
         return
     
     def _phases_SOpoints(self):
@@ -226,7 +232,7 @@ class parcel(object):
             Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
             
         """
-        orbital_phase = np.zeros(self.timeval.shape)
+        orb_phase = np.zeros(self.timeval.shape)
         if self.continueOrbit:
             orb_pos_zero = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
         else:
@@ -237,9 +243,13 @@ class parcel(object):
         orb_phase[1:] = orb_pos_zero + np.cumsum(self.ang_vel[:-1]*delta_t)
         
         # Using w_rot because w_adv includes w_orb- Yes?
+        # Yes, this looks OK.
         SSP = (orb_phase - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
+
         # To get anti-SSP at t=0, do (-w_rot * t) + pi
-        SOP = (pi - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
+        ### COME BACK AND DOUBLE-CHECK!!!
+#        SOP = (pi - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
+        SOP = (1.5*pi - orb_phase) % (2.0*pi)
         
         self.orb_phase = orb_phase
         self.SSP = SSP
@@ -317,15 +327,17 @@ class parcel(object):
         
         # Original array has shape (time steps, num. of pixels, 3) where 3 is lat-long-temp.
         # Try to simplify: lats never change, keep longs and temps apart.
-        phis_evolve = self.phis[np.newaxis,:] + (self.SSP[:,np.newaxis]*np.sign(self.wadv))
+        # ---> Why was np.sign(self.wadv) multiplied to self.SSP originally?
+        phis_evolve = self.phis[np.newaxis,:] - self.SSP[:,np.newaxis]  # Orig. +, DOUBLE-CHECK!!!!!
         Tvals_evolve = np.zeros(phis_evolve.shape)
         Tvals_evolve[0,:] += Tvals
-        phis_relSOP = self.phis_evolve - np.radians(180.0-self.alpha[:,np.newaxis]) # For making visibility
-        
+#        phis_relSOP = phis_evolve - np.radians(180.0-self.alpha[:,np.newaxis]) # For making visibility
+        phis_relSOP = phis_evolve - self.SOP[:,np.newaxis]  # Orig. +, DOUBLE-CHECK!!!!!
+
         # Called "Fweight" before.
         illumination = 0.5*(np.cos(phis_evolve) + np.absolute(np.cos(phis_evolve)))*np.sin(self.thetas)
         visibility = 0.5*(np.cos(phis_relSOP) + np.absolute(np.cos(phis_relSOP)))*np.sin(self.thetas)
-        
+
         self.phis_evolve = phis_evolve
         self.Tvals_evolve = Tvals_evolve
         self.illumination = illumination
@@ -477,8 +489,8 @@ class parcel(object):
             self._period_calc()
             self.wadv = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
         elif motions == 'per':
-            self.Porb = orbval*sec_per_day
-            self.Prot = rotval*sec_per_day
+            self.Porb = orbval*self.sec_per_day
+            self.Prot = rotval*self.sec_per_day
             self.wadv = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
         elif motions == 'freq':  ## DO THESE NEED 'sec_per_day' MULTIPLIED?
             self.Porb = (2.0*pi/orbval)
@@ -500,7 +512,7 @@ class parcel(object):
         # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
         self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1))  # For the default time length
         self.numOrbs = numOrbs  # Num. of orb. periods
-        self.stepsPerRot = stepsPerRot*self.rotationsPerOrbit  # Steps per orbit
+        self.stepsPerOrbit = stepsPerRot*self.rotationsPerOrbit  # Steps per orbit
         
         ### JCS Things - want to make these automatic eventually.
         self.again_Tmap = again_Tmap
@@ -1136,7 +1148,7 @@ class parcel(object):
         """
         if self.eccen == 0:
             if (self.epsilon <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
-                self.Tvals_evolve = ((1.0-self.bondA)*illumination)**(0.25)
+                self.Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
                 # This difference is mod -2*pi --> why the negative?
                 delta_phis = np.absolute((self.phis_evolve[1:,:] - self.phis_evolve[:-1,:]) % (-2.0*pi))
@@ -1657,7 +1669,7 @@ class parcel(object):
         Something else.
         
         """
-        start_time = int(self.stepsPerRot*(self.numOrbs-1))
+        start_time = int(self.stepsPerOrbit*(self.numOrbs-1))
         
         # For now, each gives you values at every time step.
         # Can do an extra check to get a single value.
