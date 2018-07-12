@@ -101,6 +101,7 @@ class parcel(object):
     stef_boltz = (5.670367)*(10**(-8))  # Stefan-Boltzmann constant
     boltz = (1.38064852)*(10**(-23))  # Boltzmann constant
     sec_per_day = 86400
+    sec_per_hour = 3600
     
     radius_sun = (6.957)*(10**8)  # in m
     radius_jupiter = (6.9911)*(10**7)  # in m
@@ -160,10 +161,14 @@ class parcel(object):
             0.5*(1-np.cos(alpha*pi/180.0))
             
         """
-        # All orbits are 90 degree inclination, or edge-on.
-        # That isn't important for KeplerEllipse, so we just use i = 0 degrees.
-        ### OH BOY, NEED TO LOOK AT "tau" HERE, THE TIME OF PERIAPSIS PASSAGE!!!!!!
-        ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,i=0,w=self.arg_peri)  # Omega=180.0,i=90.0
+        # The KeplerEllipse coordinates are: x == "North", y == "East", z == "away from observer".
+        # Our orbits are edge-on with inclination = 90 degrees, so orbits in x-z plane.
+        # Longitude of ascending node doesn't really matter, so we set Omega = 0 degrees (along +x axis).
+        # OBSERVER INPUT: "arg_peri" is measured from 1st quarter phase (alpha = 90 degrees).
+        # --->>> To have periapsis occur at transit, arg_peri = -90 degrees.
+        # --->>>>>> NEED TO ADD 180 DEGREES TO ARGUMENTS OF PERIAPSIS FROM THE LITERATURE!!
+        # --->>>>>> COME BACK AND CORRECT/DOCUMENT THIS NEXT TIME!!!!
+        ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
         
         # Make time array
         tmax = self.Porb*self.numOrbs
@@ -174,25 +179,24 @@ class parcel(object):
             timeval = np.linspace(0,tmax,num=Nmin+1)
         
         radius = ke.radius(timeval)
-        vel = ke.xyzVel(timeval)
-        abs_vel = (vel[:,0]**2.0 + vel[:,1]**2.0 + vel[:,2]**2.0)**0.5
-        ang_vel = abs_vel/radius
+#        vel = ke.xyzVel(timeval)
+#        abs_vel = np.sum(vel**2.0,axis=1)**0.5
+#        ang_vel = abs_vel/radius
+
+        pos,tru_anom = ke.xyzPos(timeval,getTA=True)
         
-        # TA == true anomaly
-        pos,TA = ke.xyzPos(timeval,getTA=True)
-        
-        # Want alpha = 0 at transit and TA = 90-w at transit, so alpha = w-90 + TA
-        ### COME BACK AND DOUBLE-CHECK THIS CRAP.
-        alpha = (self.arg_peri-90.0) + np.degrees(np.array(TA))
+        # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
+        # So: alpha = 90 + arg_peri + tru_anom
+        alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
+        # Minus here because alpha = 0 at transit.
         frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
             
         self.timeval = timeval
         self.radius = radius
-        self.ang_vel = ang_vel
+#        self.ang_vel = ang_vel
+        self.tru_anom = tru_anom
         self.alpha = alpha
         self.frac_litup = frac_litup
-        
-        self.TA = TA  # TEST TEST TEST
         return
     
     def _phases_SOpoints(self):
@@ -232,28 +236,41 @@ class parcel(object):
             Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
             
         """
-        orb_phase = np.zeros(self.timeval.shape)
-        if self.continueOrbit:
-            orb_pos_zero = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
-        else:
-            orb_pos_zero = 0
-        orb_phase[0] = orb_pos_zero
-        
-        delta_t = self.timeval[1:] - self.timeval[:-1]
-        orb_phase[1:] = orb_pos_zero + np.cumsum(self.ang_vel[:-1]*delta_t)
-        
-        # Using w_rot because w_adv includes w_orb- Yes?
-        # Yes, this looks OK.
-        SSP = (orb_phase - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
+        # WAIT, WHY ARE YOU USING orb_phase WHEN YOU'VE ALREADY GOT tru_anom AND alpha?? :-D
+        # tru_anom ALREADY STARTS AT 0.
+        # LET'S TRY IGNORING THIS BLOCK AND SEE WHAT HAPPENS.
+#        ### ### ###
+#        ### ### ###
+#        ### ### ###
+#        orb_phase = np.zeros(self.timeval.shape)
+#        if self.continueOrbit:
+#            orb_pos_zero = (self.again_t*(2.0*pi/self.Porb)) % (2.0*pi)
+#        else:
+#            orb_pos_zero = 0
+#        orb_phase[0] = orb_pos_zero
+#
+#        delta_t = self.timeval[1:] - self.timeval[:-1]
+#        orb_phase[1:] = orb_pos_zero + np.cumsum(self.ang_vel[:-1]*delta_t)
+#        ### ### ###
+#        ### ### ###
+#        ### ### ###
 
-        # To get anti-SSP at t=0, do (-w_rot * t) + pi
-        ### COME BACK AND DOUBLE-CHECK!!!
-#        SOP = (pi - ((2.0*pi/self.Prot)*self.timeval)) % (2.0*pi)
-        SOP = (1.5*pi - orb_phase) % (2.0*pi)
+        # Planet coordinates: longitude = 0 always points at star.
+        # So, longitude of gas parcels change throughout orbit. Colatitude stays the same.
+        # Gives: new_longs = orig_longs + Rotation effect (East) - Orbit effect (West)
+        shift_longs = self.longs[np.newaxis,:] + ((2.0*pi/self.Prot)*self.timeval[:,np.newaxis]) - self.tru_anom[:,np.newaxis]
+        longs_evolve = shift_longs % (2.0*pi)
         
-        self.orb_phase = orb_phase
-        self.SSP = SSP
-        self.SOP = SOP
+        # Sub-stellar point: always long = 0 in our coordinates.
+        SSP_long = 0
+
+        # Sub-observer point: longitude from alpha (orbital phase for observer)
+        # SOP_long = pi when alpha = 0, and Westward drift means -alpha.
+        SOP_long = (pi - np.radians(self.alpha)) % (2.0*pi)
+
+        self.longs_evolve = longs_evolve
+        self.SSP_long = SSP_long
+        self.SOP_long = SOP_long
         return
     
     def _phiT_visillum(self):
@@ -319,26 +336,37 @@ class parcel(object):
         if self.continueOrbit:
             Tvals = self.again_Tmap
         else:
-            the_low_case = (np.sin(self.thetas)*(np.cos(self.phis) + np.absolute(np.cos(self.phis)))/2.0)**0.25  # Need **0.25 outside EVERYTHING
-            the_high_case = (np.sin(self.thetas)/pi)**0.25
-            the_scaler = (self.epsilon**1.652)/(1.828 + self.epsilon**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
+            the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
+            the_high_case = (np.sin(self.colat)/pi)**0.25
+            pos_eps = abs(self.epsilon)  # Negative epsilons don't play nice in "the_scaler".
+            the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
             Tvals = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
             Tvals[Tvals<0.1] = 0.1
         
-        # Original array has shape (time steps, num. of pixels, 3) where 3 is lat-long-temp.
-        # Try to simplify: lats never change, keep longs and temps apart.
-        # ---> Why was np.sign(self.wadv) multiplied to self.SSP originally?
-        phis_evolve = self.phis[np.newaxis,:] - self.SSP[:,np.newaxis]  # Orig. +, DOUBLE-CHECK!!!!!
-        Tvals_evolve = np.zeros(phis_evolve.shape)
+        Tvals_evolve = np.zeros(self.longs_evolve.shape)
         Tvals_evolve[0,:] += Tvals
-#        phis_relSOP = phis_evolve - np.radians(180.0-self.alpha[:,np.newaxis]) # For making visibility
-        phis_relSOP = phis_evolve - self.SOP[:,np.newaxis]  # Orig. +, DOUBLE-CHECK!!!!!
+        
+        longs_minus_SSP = self.longs_evolve - self.SSP_long
+        longs_minus_SOP = self.longs_evolve - self.SOP_long[:,np.newaxis]
+        
+        illumination = 0.5*(np.cos(longs_minus_SSP) + np.absolute(np.cos(longs_minus_SSP)))*np.sin(self.colat)
+        visibility = 0.5*(np.cos(longs_minus_SOP) + np.absolute(np.cos(longs_minus_SOP)))*np.sin(self.colat)
+        
+        
+#        # Original array has shape (time steps, num. of pixels, 3) where 3 is lat-long-temp.
+#        # Try to simplify: lats never change, keep longs and temps apart.
+#        # ---> Why was np.sign(self.wadv) multiplied to self.SSP originally?
+#        phis_evolve = self.longs[np.newaxis,:] - self.SSP[:,np.newaxis]  # Orig. +, DOUBLE-CHECK!!!!!
+#        Tvals_evolve = np.zeros(phis_evolve.shape)
+#        Tvals_evolve[0,:] += Tvals
+##        phis_relSOP = phis_evolve - np.radians(180.0-self.alpha[:,np.newaxis]) # For making visibility
+#        phis_relSOP = phis_evolve - self.SOP[:,np.newaxis]  # Orig. +, DOUBLE-CHECK!!!!!
+#
+#        # Called "Fweight" before.
+#        illumination = 0.5*(np.cos(phis_evolve) + np.absolute(np.cos(phis_evolve)))*np.sin(self.colat)
+#        visibility = 0.5*(np.cos(phis_relSOP) + np.absolute(np.cos(phis_relSOP)))*np.sin(self.colat)
 
-        # Called "Fweight" before.
-        illumination = 0.5*(np.cos(phis_evolve) + np.absolute(np.cos(phis_evolve)))*np.sin(self.thetas)
-        visibility = 0.5*(np.cos(phis_relSOP) + np.absolute(np.cos(phis_relSOP)))*np.sin(self.thetas)
-
-        self.phis_evolve = phis_evolve
+#        self.longs_evolve = phis_evolve
         self.Tvals_evolve = Tvals_evolve
         self.illumination = illumination
         self.visibility = visibility
@@ -485,29 +513,29 @@ class parcel(object):
         
         self.bondA = bondA  # planet Bond albedo
 
-        if motions == 'calc':
+        if motions == 'calc':  # Periods calculated in seconds
             self._period_calc()
             self.wadv = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
-        elif motions == 'per':
+        elif motions == 'per':  # Periods converted from days to seconds
             self.Porb = orbval*self.sec_per_day
             self.Prot = rotval*self.sec_per_day
             self.wadv = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
-        elif motions == 'freq':  ## DO THESE NEED 'sec_per_day' MULTIPLIED?
-            self.Porb = (2.0*pi/orbval)
-            self.Prot = (2.0*pi/rotval)
-            self.wadv = rotval - orbval
+        elif motions == 'freq':  # Ang. freq. converted from rad/day to rad/second
+            self.Porb = (2.0*pi/orbval)*self.sec_per_day
+            self.Prot = (2.0*pi/rotval)*self.sec_per_day
+            self.wadv = (rotval - orbval)/self.sec_per_day
 
         self.T0 = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
 
         if self.eccen == 0:
-            self.epsilon = epsilon
+            self.epsilon = epsilon  # Can be negative for net-Westward circulation
             if self.wadv == 0:
                 self.tau_rad = 0
             else:
-                self.tau_rad = abs(epsilon/self.wadv)
+                self.tau_rad = abs(epsilon/self.wadv)  # tau_rad in seconds
         else:
-            self.tau_rad = tau_rad*3600.0  # Because input tau_rad is in hours(?)
-            self.epsilon = abs(self.wadv)*tau_rad
+            self.tau_rad = tau_rad*self.sec_per_hour  # tau_rad converted from hours to seconds
+            self.epsilon = self.wadv*self.tau_rad  # epsilon has same sign as wadv
         
         # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
         self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1))  # For the default time length
@@ -522,7 +550,7 @@ class parcel(object):
         self._kepler_calcs()
         
         self.NSIDE = NSIDE
-        self.thetas,self.phis = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
+        self.colat,self.longs = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
         
         self._phases_SOpoints()
         self._phiT_visillum()
@@ -606,16 +634,16 @@ class parcel(object):
         
         # Porb, Prot, eccen, argp
         form_cols = '{:^14} {:^14} {:^14} {:^24}'
-        print(form_cols.format('P_orb (days)','P_rot (days)','Eccentricity','Arg. periastron (deg.)'))
+        print(form_cols.format('P_orb (days)','P_rot (days)','Eccentricity','Arg. periastron (deg)'))
         form_cols = '{:^14.2f} {:^14.2f} {:^14.3f} {:^24.1f}'
         print(form_cols.format(self.Porb/self.sec_per_day,self.Prot/self.sec_per_day,self.eccen,self.arg_peri))
         print('')
         
         # wadv, tau_rad, epsilon
-        form_cols = '{:^16} {:^22} {:^10}'
-        print(form_cols.format('Advective freq.','Radiative time (hrs)','Epsilon'))
-        form_cols = '{:^16.3f} {:^22.3f} {:^10.3f}'
-        print(form_cols.format(self.wadv,self.tau_rad/3600.0,self.epsilon))
+        form_cols = '{:^26} {:^22} {:^10}'
+        print(form_cols.format('Advective freq. (rad/hr)','Radiative time (hrs)','Epsilon'))
+        form_cols = '{:^26.3f} {:^22.3f} {:^10.3f}'
+        print(form_cols.format(self.wadv*self.sec_per_hour,self.tau_rad/self.sec_per_hour,self.epsilon))
         
         return
     
@@ -1147,15 +1175,16 @@ class parcel(object):
 
         """
         if self.eccen == 0:
-            if (self.epsilon <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
+            # THESE FIRST PARTS NEED TO BE CHECKED BECAUSE THEY AREN'T MATCHING THE PUBLISHED PLOTS!
+            if (abs(self.epsilon) <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
                 self.Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
                 # This difference is mod -2*pi --> why the negative?
-                delta_phis = np.absolute((self.phis_evolve[1:,:] - self.phis_evolve[:-1,:]) % (-2.0*pi))
+                delta_longs = np.absolute((self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (-2.0*pi))
                 
                 for i in range(1,len(self.timeval)):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
-                    delta_Tvals = (1.0/self.epsilon)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_phis[i-1,:]
+                    delta_Tvals = (1.0/self.epsilon)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
                     self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
         else:
             # Normalized stellar flux, can clean up becasue A LOT cancels.
@@ -1164,7 +1193,7 @@ class parcel(object):
             scaled_illum = (flux_inc/flux_max)*self.illumination
             
             # Eccentric DE uses t_tilda = t/tau_rad
-            if (self.epsilon <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
+            if (abs(self.epsilon) <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
                 self.Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)  # Why divided by stef_boltz before??
             else:
                 delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.tau_rad
@@ -1677,6 +1706,7 @@ class parcel(object):
         max_angles = hp.pix2ang(self.NSIDE,max_args)
         
         Ttilda_max = np.amax(self.Tvals_evolve[start_time:,:],axis=1)
+        # DUSK AND DAWN NEED WORK BECAUSE YOU FIXED THE COORDINATE SYSTEM TO THE SSP!!!
         Ttilda_dusk = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,pi/2.0)]
         Ttilda_dawn = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,-pi/2.0)]
     
