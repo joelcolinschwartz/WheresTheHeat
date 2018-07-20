@@ -111,12 +111,13 @@ class parcel(object):
     
     planck = (6.62607004)*(10**(-34))
     speed_light = (2.99792458)*(10**8)  # in m/s
+    
+    def _calc_efactor(self,ecc):
+        # For scaling ang. vel. at periastron (^-1 for period)
+        return ((1-ecc)**(-1.5))*((1+ecc)**0.5)
 
-
-    def _period_calc(self):
-        self.Porb = 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
-        self.Prot = self.Porb*((1-self.eccen)**1.5)*((1+self.eccen)**(-0.5))
-        return
+    def _calc_orb_period(self):
+        return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
     
     def _kepler_calcs(self):
         """Calculates orbital separation (between planet and its star) as a function of time
@@ -165,14 +166,14 @@ class parcel(object):
         # Our orbits are edge-on with inclination = 90 degrees, so orbits in x-z plane.
         # Longitude of ascending node doesn't really matter, so we set Omega = 0 degrees (along +x axis).
         # Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
-        # >>> SEE KEY NOTE ABOUT "arg_peri" IN THE __init__ METHOD!!!
+        # >>> SEE KEY NOTE IN _modify_arg_peri METHOD!!!
         ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
         
         # Periastron happens at t = 0 because "tau" in KeplerEllipse defaults to zero.
         # Get info for conjunctions--transit and eclipse--when orbit crosses y-z plane:
         conjunc_times = np.array(ke.yzCrossingTime())
         conjunc_pos,conjunc_tru_anom = ke.xyzPos(conjunc_times,getTA=True)
-        # Eclipse has +z (transit -z) so argmax is eclipse index, either 0 or 1.
+        # Eclipse has +z (transit -z) so argmax is eclipse index (0 or 1).
         i_ecl = np.argmax(conjunc_pos[:,2])
         
         self.ecl_time = conjunc_times[i_ecl]
@@ -345,6 +346,13 @@ class parcel(object):
         self.visibility = visibility
         return
     
+    def _modify_arg_peri(self,ap):
+        # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
+        #     >>>: But in exoplanet literature, arg. peri. = 90 deg means periastron at TRANSIT (alpha = 0 deg).
+        #     >>>: (FYI, the arg. peri. quoted in papers are probably for the host stars.)
+        #     >>>: So, we add 180 deg to the input argument for consistency. DON'T GET CONFUSED! :-)
+        return (ap+180.0) % 360.0
+    
     
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
                  Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
@@ -482,28 +490,37 @@ class parcel(object):
         self.Rplanet = Rplanet*self.radius_jupiter  # planet mass
         self.smaxis = smaxis*self.astro_unit  # semimajor axis
         self.eccen = eccen  # eccentricity
+        # For scaling ang. vel. at periastron (^-1 for period)
+        self._ecc_factor = self._calc_efactor(self,eccen)
         
         # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
         #     >>>: But in exoplanet literature, arg. peri. = 90 deg means periastron at TRANSIT (alpha = 0 deg).
         #     >>>: (FYI, the arg. peri. quoted in papers are probably for the host stars.)
         #     >>>: So, we add 180 deg to the input "arg_peri" for consistency. DON'T GET CONFUSED! :-)
-        self.arg_peri = arg_peri+180.0
+        self.arg_peri = self._modify_arg_peri(self,arg_peri)
         
         self.bondA = bondA  # planet Bond albedo
 
+        ### NEED TO PICK UP FROM HERE AND RELATED METHODS NEXT TIME ###
         if motions == 'calc':  # Periods calculated in seconds
-            self._period_calc()
-            self.adv_freq = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
+            self.Porb = self._calc_orb_period()
+            self.Wrot = rotval*((2.0*pi/self.Porb)*self._ecc_factor)
+            rp = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
+            self.Prot = rp(self.Wrot)
         elif motions == 'per':  # Periods converted from days to seconds
             self.Porb = orbval*self.sec_per_day
-            self.Prot = rotval*self.sec_per_day
-            self.adv_freq = (2.0*pi/self.Prot) - (2.0*pi/self.Porb)
-        elif motions == 'freq':  # Ang. freq. converted from rad/day to rad/second
-            self.Porb = (2.0*pi/orbval)*self.sec_per_day
-            self.Prot = (2.0*pi/rotval)*self.sec_per_day
-            self.adv_freq = (rotval - orbval)/self.sec_per_day
+            self.Prot = abs(rotval)*(self.Porb/self._ecc_factor)
+            rw = lambda p,v: 0 if p == np.inf else np.sign(v)*(2.0*pi/p)
+            self.Wrot = rw(self.Prot,rotval)
+        elif motions == 'freq':  # Ang. freq. converted from degrees/day to rad/second
+            ov = np.radians(orbval)
+            self.Porb = (2.0*pi/ov)*self.sec_per_day
+            self.Wrot = rotval*((2.0*pi/self.Porb)*self._ecc_factor)
+            rp = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
+            self.Prot = rp(self.Wrot)
+        self.adv_freq_peri = self.Wrot - ((2.0*pi/self.Porb)*self._ecc_factor)
 
-        self.T0 = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
+        self.Tirrad = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
 
         # Handling tau_rad and epsilon, depending on inputs
         if constant == 'radiate':
@@ -554,7 +571,7 @@ class parcel(object):
         form_cols = '{:^20} {:^14} {:^16} {:^20}'
         print(form_cols.format('R_planet (Jupiter)','Bond albedo','Semimajor (AU)','T_irradiation (K)'))
         form_cols = '{:^20.2f} {:^14.2f} {:^16.3f} {:^20.1f}'
-        print(form_cols.format(self.Rplanet/self.radius_jupiter,self.bondA,self.smaxis/self.astro_unit,self.T0))
+        print(form_cols.format(self.Rplanet/self.radius_jupiter,self.bondA,self.smaxis/self.astro_unit,self.Tirrad))
         print('')
         
         # Porb, Prot, eccen, argp
@@ -701,10 +718,8 @@ class parcel(object):
             if (abs(self.epsilon) <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
                 self.Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
-                if self.adv_freq < 0:
-                    delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (-2.0*pi)
-                else:
-                    delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (2.0*pi)
+                sn = lambda w: -1.0 if w < 0 else 1.0
+                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq)*2.0*pi)
                 
                 for i in range(1,len(self.timeval)):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
@@ -818,9 +833,9 @@ class parcel(object):
         """
         self.DE()  # May want to restructure this.
         
-        bolo_blackbody = self.stef_boltz*((self.Tvals_evolve*self.T0)**4)
+        bolo_blackbody = self.stef_boltz*((self.Tvals_evolve*self.Tirrad)**4)
         wavelength = microns*(10**(-6))  # microns to meters
-        xpon = self.planck*self.speed_light/(wavelength*self.boltz*(self.Tvals_evolve*self.T0))
+        xpon = self.planck*self.speed_light/(wavelength*self.boltz*(self.Tvals_evolve*self.Tirrad))
         ## So bolo and wave units match, leading "pi" is from integral over solid angle.
         wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
         
