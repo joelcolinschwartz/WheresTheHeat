@@ -112,12 +112,81 @@ class parcel(object):
     planck = (6.62607004)*(10**(-34))
     speed_light = (2.99792458)*(10**8)  # in m/s
     
-    def _calc_efactor(self,ecc):
+    _accept_motions = ['calcR','calcA','perR','perA','freqR','freqA']
+    
+    def _calc_efactor(self,eccen):
         # For scaling ang. vel. at periastron (^-1 for period)
-        return ((1-ecc)**(-1.5))*((1+ecc)**0.5)
+        return ((1-eccen)**(-1.5))*((1+eccen)**0.5)
 
     def _calc_orb_period(self):
         return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
+    
+    
+    def _setup_motion(self,motions,orbval,rotval):
+        """Blah blah blah."""
+        mot_style,mot_qual = motions[:-1],motions[-1]
+        w_to_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
+        p_to_w = lambda p,r: 0 if p == np.inf else np.sign(r)*(2.0*pi/p)
+        
+        if mot_style == 'freq':  # Converted from degrees/day to rad/second
+            Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
+            if mot_qual == 'A':
+                Wrot = np.radians(rotval)/self.sec_per_day
+            elif mot_qual == 'R':
+                Wrot = rotval*((2.0*pi/Porb)*self._ecc_factor)
+            Prot = w_to_p(Wrot)
+        
+        else:
+            if mot_style == 'calc':  # Calculated in seconds
+                Porb = self._calc_orb_period()
+            elif mot_style == 'per':  # Converted from days to seconds
+                Porb = orbval*self.sec_per_day
+            
+            if mot_qual == 'A':
+                Prot = abs(rotval)*self.sec_per_day
+            elif mot_qual == 'R':
+                Prot = abs(rotval)*(Porb/self._ecc_factor)
+            Wrot = p_to_w(Prot,rotval)
+        
+        adv_freq_peri = Wrot - ((2.0*pi/Porb)*self._ecc_factor)
+        return Porb,Prot,Wrot,adv_freq_peri
+    
+    
+    def _setup_radiate_recirc(self,tau_rad,epsilon):
+        """Blah blah blah."""
+        if epsilon != None:
+            if self.eccen == 0:
+                recirc_effic = epsilon
+                
+                if self.adv_freq_peri == 0:
+                    if recirc_effic != 0:
+                        print('Constructor warning: atmosphere\'s advective freq. is 0, \"recirc_effic\" is not.')
+                        print('    Your planet has no winds, but you want heat to be transported.')
+                        print('    I am setting radiative time to infinity, but your system is not self-consistent.')
+                        print('')
+                        radiate_time = np.inf
+                    else:
+                        radiate_time = 0
+            
+                else:
+                    radiate_time = abs(recirc_effic/self.adv_freq_peri)
+                    # Check for mismatched wind direction
+                    if abs(np.sign(recirc_effic)-np.sign(self.adv_freq_peri)) == 2:
+                        print('Constructor warning: atmosphere\'s advective freq. and \"recirc_effic\" have opposite signs.')
+                        print('    Your planet\'s winds flow one way, but you want them to go the other way.')
+                        print('    Radiative time is defined, but your system is not self-consistent.')
+                        print('')
+
+            else:
+                print('Constructor ignore: you can only set \"recirc_effic\" for circular orbits.')
+                recirc_effic = np.nan
+                radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
+            
+        else:
+            recirc_effic = np.nan
+            radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
+        return radiate_time,recirc_effic
+    
     
     def _kepler_calcs(self):
         """Calculates orbital separation (between planet and its star) as a function of time
@@ -327,7 +396,10 @@ class parcel(object):
         else:
             the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
             the_high_case = (np.sin(self.colat)/pi)**0.25
-            pos_eps = abs(self.epsilon)  # Negative epsilons don't play nice in "the_scaler".
+            if np.isnan(self.recirc_effic):
+                pos_eps = abs(self.adv_freq_peri*self.radiate_time)  # Negative recirc_effic's don't play nice in "the_scaler".
+            else:
+                pos_eps = abs(self.recirc_effic)
             the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
             Tvals = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
             Tvals[Tvals<0.1] = 0.1
@@ -356,8 +428,8 @@ class parcel(object):
     
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
                  Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
-                 motions='calc',orbval=1.0,rotval=1.0,
-                 constant='radiate',conval=12.0,
+                 motions='calcR',orbval=1.0,rotval=1.0,
+                 radiate_time=12.0,recirc_effic=None,
                  numOrbs=3,stepsPerRot=360,NSIDE=8,
                  again_Tmap=False,again_t=0,continueOrbit=False):
         
@@ -491,48 +563,26 @@ class parcel(object):
         self.smaxis = smaxis*self.astro_unit  # semimajor axis
         self.eccen = eccen  # eccentricity
         # For scaling ang. vel. at periastron (^-1 for period)
-        self._ecc_factor = self._calc_efactor(self,eccen)
+        self._ecc_factor = self._calc_efactor(eccen)
+        
+        self.bondA = bondA  # planet Bond albedo
+        self.Tirrad = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
         
         # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
         #     >>>: But in exoplanet literature, arg. peri. = 90 deg means periastron at TRANSIT (alpha = 0 deg).
         #     >>>: (FYI, the arg. peri. quoted in papers are probably for the host stars.)
         #     >>>: So, we add 180 deg to the input "arg_peri" for consistency. DON'T GET CONFUSED! :-)
-        self.arg_peri = self._modify_arg_peri(self,arg_peri)
+        self.arg_peri = self._modify_arg_peri(arg_peri)
         
-        self.bondA = bondA  # planet Bond albedo
+        if motions not in self._accept_motions:
+            print('Constructor error: \"motions\" should be one of these strings:')
+            print(self._accept_motions)
+            return
+        self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(motions,orbval,rotval)
+        
+        self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radiate_time,recirc_effic)
 
-        ### NEED TO PICK UP FROM HERE AND RELATED METHODS NEXT TIME ###
-        if motions == 'calc':  # Periods calculated in seconds
-            self.Porb = self._calc_orb_period()
-            self.Wrot = rotval*((2.0*pi/self.Porb)*self._ecc_factor)
-            rp = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
-            self.Prot = rp(self.Wrot)
-        elif motions == 'per':  # Periods converted from days to seconds
-            self.Porb = orbval*self.sec_per_day
-            self.Prot = abs(rotval)*(self.Porb/self._ecc_factor)
-            rw = lambda p,v: 0 if p == np.inf else np.sign(v)*(2.0*pi/p)
-            self.Wrot = rw(self.Prot,rotval)
-        elif motions == 'freq':  # Ang. freq. converted from degrees/day to rad/second
-            ov = np.radians(orbval)
-            self.Porb = (2.0*pi/ov)*self.sec_per_day
-            self.Wrot = rotval*((2.0*pi/self.Porb)*self._ecc_factor)
-            rp = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
-            self.Prot = rp(self.Wrot)
-        self.adv_freq_peri = self.Wrot - ((2.0*pi/self.Porb)*self._ecc_factor)
-
-        self.Tirrad = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
-
-        # Handling tau_rad and epsilon, depending on inputs
-        if constant == 'radiate':
-            self.tau_rad = conval*self.sec_per_hour  # tau_rad converted from hours to seconds
-            self.epsilon = self.adv_freq*self.tau_rad  # epsilon has same sign as adv_freq
-        elif constant == 'recirc':
-            sn = lambda w: -1.0 if w < 0 else 1.0
-            self.epsilon = abs(conval)*sn(self.adv_freq)  # Negative for net-Westward circulation
-            if self.adv_freq == 0:
-                self.tau_rad = 0
-            else:
-                self.tau_rad = abs(self.epsilon/self.adv_freq)  # tau_rad in seconds
+        ### PICK UP FROM HERE NEXT TIME ###
         
         # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
         self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1))  # For the default time length
@@ -581,11 +631,11 @@ class parcel(object):
         print(form_cols.format(self.Porb/self.sec_per_day,self.Prot/self.sec_per_day,self.eccen,self.arg_peri))
         print('')
         
-        # adv_freq, tau_rad, epsilon
+        # adv_freq_peri, radiate_time, recirc_effic
         form_cols = '{:^26} {:^22} {:^10}'
         print(form_cols.format('Advective freq. (rad/hr)','Radiative time (hrs)','Epsilon'))
         form_cols = '{:^26.3f} {:^22.3f} {:^10.3f}'
-        print(form_cols.format(self.adv_freq*self.sec_per_hour,self.tau_rad/self.sec_per_hour,self.epsilon))
+        print(form_cols.format(self.adv_freq_peri*self.sec_per_hour,self.radiate_time/self.sec_per_hour,self.recirc_effic))
         
         return
 
@@ -715,15 +765,15 @@ class parcel(object):
 
         """
         if self.eccen == 0:
-            if (abs(self.epsilon) <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
+            if (abs(self.recirc_effic) <= 10**(-4)) or (self.radiate_time <= 10**(-4)):
                 self.Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
                 sn = lambda w: -1.0 if w < 0 else 1.0
-                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq)*2.0*pi)
+                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq_peri)*2.0*pi)
                 
                 for i in range(1,len(self.timeval)):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
-                    delta_Tvals = (1.0/self.epsilon)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
+                    delta_Tvals = (1.0/self.recirc_effic)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
                     self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
         else:
             # Normalized stellar flux, can clean up becasue A LOT cancels.
@@ -732,11 +782,11 @@ class parcel(object):
 #            scaled_illum = (flux_inc/flux_max)*self.illumination
             scaled_illum = self.illumination*((self.smaxis*(1-self.eccen)/self.radius[:,np.newaxis])**2)
             
-            # Eccentric DE uses t_tilda = t/tau_rad
-            if (abs(self.epsilon) <= 10**(-4)) or (self.tau_rad <= 10**(-4)):
+            # Eccentric DE uses t_tilda = t/radiate_time
+            if self.radiate_time <= 10**(-4):
                 self.Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)  # Why divided by stef_boltz before??
             else:
-                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.tau_rad
+                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.radiate_time
                 
                 for i in range(1,len(self.timeval)):
                     delta_Tvals = (scaled_illum[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
@@ -1080,7 +1130,7 @@ class parcel(object):
         if isinstance(epsilon,(float,int)):
             eps = epsilon
         else:
-            eps = self.epsilon
+            eps = self.recirc_effic
         
         # Each gives you single T values.
         Ttilda_max = self._max_temper(eps)
