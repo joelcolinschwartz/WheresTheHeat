@@ -114,13 +114,21 @@ class parcel(object):
     
     _accept_motions = ['calcR','calcA','perR','perA','freqR','freqA']
     
+    
     def _calc_efactor(self,eccen):
         # For scaling ang. vel. at periastron (^-1 for period)
         return ((1-eccen)**(-1.5))*((1+eccen)**0.5)
+    
+    def _modify_arg_peri(self,ap):
+        # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
+        #     >>>: But in exoplanet literature, arg. peri. = 90 deg means periastron at TRANSIT (alpha = 0 deg).
+        #     >>>: (FYI, the arg. peri. quoted in papers are probably for the host stars.)
+        #     >>>: So, we add 180 deg to the input argument for consistency. DON'T GET CONFUSED! :-)
+        return (ap+180.0) % 360.0
+    
 
     def _calc_orb_period(self):
         return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
-    
     
     def _setup_motion(self,motions,orbval,rotval):
         """Blah blah blah."""
@@ -161,7 +169,7 @@ class parcel(object):
                 if self.adv_freq_peri == 0:
                     if recirc_effic != 0:
                         print('Constructor warning: atmosphere\'s advective freq. is 0, \"recirc_effic\" is not.')
-                        print('    Your planet has no winds, but you want heat to be transported.')
+                        print('    Your planet has no winds, but you want to transport heat.')
                         print('    I am setting radiative time to infinity, but your system is not self-consistent.')
                         print('')
                         radiate_time = np.inf
@@ -173,7 +181,7 @@ class parcel(object):
                     # Check for mismatched wind direction
                     if abs(np.sign(recirc_effic)-np.sign(self.adv_freq_peri)) == 2:
                         print('Constructor warning: atmosphere\'s advective freq. and \"recirc_effic\" have opposite signs.')
-                        print('    Your planet\'s winds flow one way, but you want them to go the other way.')
+                        print('    Your planet\'s winds flow one way, but you want them going the other way.')
                         print('    Radiative time is defined, but your system is not self-consistent.')
                         print('')
 
@@ -183,10 +191,37 @@ class parcel(object):
                 radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
             
         else:
-            recirc_effic = np.nan
             radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
+            re = lambda e: self.adv_freq_peri*radiate_time if e == 0 else np.nan
+            recirc_effic = re(self.eccen)
         return radiate_time,recirc_effic
+
+
+    def _setup_time_array(self):
+        """Blah blah blah."""
+        ts = lambda co: self.timeval[-1] if co else 0
+        t_start = ts(self.continueOrbit)
+        t_end = self.Porb*self.numOrbs
+        N = round(self.numOrbs*self.stepsPerOrbit)
+        timeval = np.linspace(t_start,t_start+t_end,num=N+1)
+        return timeval
     
+
+    # NEED TO MOVE THIS DOWN?? NOT USED YET.
+    def _setup_temperatures(self):
+        """Something something else."""
+        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
+        the_high_case = (np.sin(self.colat)/pi)**0.25
+        if np.isnan(self.recirc_effic):
+            pos_eps = abs(self.adv_freq_peri*self.radiate_time)
+        else:
+            pos_eps = abs(self.recirc_effic)  # Negative recirc_effic's don't play nice in "the_scaler".
+        the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
+        Tvals = the_scaler*the_high_case + (1.0-the_scaler)*the_low_case  # E.B. model parameterization
+        Tvals[Tvals<0.01] = 0.01
+        return Tvals
+            
+    ### ### ###
     
     def _kepler_calcs(self):
         """Calculates orbital separation (between planet and its star) as a function of time
@@ -252,16 +287,16 @@ class parcel(object):
         self.tr_pos = conjunc_pos[1-i_ecl]
         self.tr_tru_anom = conjunc_tru_anom[1-i_ecl]
         
-        # Make time array
-        tmax = self.Porb*self.numOrbs
-        Nmin = int(self.numOrbs*self.stepsPerOrbit)
-        if self.continueOrbit:
-            timeval = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
-        else:
-            timeval = np.linspace(0,tmax,num=Nmin+1)
-        
-        radius = ke.radius(timeval)
-        pos,tru_anom = ke.xyzPos(timeval,getTA=True)
+#        # Make time array
+#        tmax = self.Porb*self.numOrbs
+#        Nmin = int(self.numOrbs*self.stepsPerOrbit)
+#        if self.continueOrbit:
+#            timeval = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
+#        else:
+#            timeval = np.linspace(0,tmax,num=Nmin+1)
+
+        radius = ke.radius(self.timeval)
+        pos,tru_anom = ke.xyzPos(self.timeval,getTA=True)
         
         # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
         # So: alpha = 90 + arg_peri + tru_anom
@@ -269,7 +304,7 @@ class parcel(object):
         # Minus here because alpha = 0 at transit.
         frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
         
-        self.timeval = timeval
+#        self.timeval = timeval
         self.radius = radius
         self.tru_anom = tru_anom
         self.alpha = alpha
@@ -392,7 +427,8 @@ class parcel(object):
             
         """
         if self.continueOrbit:
-            Tvals = self.again_Tmap
+            pass
+#            Tvals = self.again_Tmap  # WILL WANT TO RE-WORK THIS.
         else:
             the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
             the_high_case = (np.sin(self.colat)/pi)**0.25
@@ -418,20 +454,12 @@ class parcel(object):
         self.visibility = visibility
         return
     
-    def _modify_arg_peri(self,ap):
-        # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
-        #     >>>: But in exoplanet literature, arg. peri. = 90 deg means periastron at TRANSIT (alpha = 0 deg).
-        #     >>>: (FYI, the arg. peri. quoted in papers are probably for the host stars.)
-        #     >>>: So, we add 180 deg to the input argument for consistency. DON'T GET CONFUSED! :-)
-        return (ap+180.0) % 360.0
-    
     
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
                  Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
                  motions='calcR',orbval=1.0,rotval=1.0,
                  radiate_time=12.0,recirc_effic=None,
-                 numOrbs=3,stepsPerRot=360,NSIDE=8,
-                 again_Tmap=False,again_t=0,continueOrbit=False):
+                 numOrbs=3,stepsPerRot=360,NSIDE=8):
         
         """The __init__ method allows to set attributes unique to each parcel instance.
         It takes some parameters in the units specified in the docstring. Some are 
@@ -554,6 +582,8 @@ class parcel(object):
         
         """
         
+        self.continueOrbit = False  # HERE AS REMINDER, CLEAN UP LATER.
+        
         self.name = name
 
         self.Teff = Teff  # star effective temp
@@ -581,23 +611,27 @@ class parcel(object):
         self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(motions,orbval,rotval)
         
         self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radiate_time,recirc_effic)
-
-        ### PICK UP FROM HERE NEXT TIME ###
         
-        # PRE-CALCULATED FUNCTIONS - Some of this stuff can be edited or removed.
-        self.rotationsPerOrbit = np.ceil(max(self.Porb/self.Prot,1))  # For the default time length
-        self.numOrbs = numOrbs  # Num. of orb. periods
-        self.stepsPerOrbit = stepsPerRot*self.rotationsPerOrbit  # Steps per orbit
-        
-        ### JCS Things - want to make these automatic eventually.
-        self.again_Tmap = again_Tmap
-        self.again_t = again_t
-        self.continueOrbit = continueOrbit
-
-        self._kepler_calcs()
+        ### Time
+        self.rotationsPerOrbit = self.Porb/self.Prot  # If Prot = 0 it's your own fault. :-)
+        # When Porb < Prot, stepsPerRot will be steps per orbit.
+        self.stepsPerOrbit = round(stepsPerRot*max(self.rotationsPerOrbit,1.0))
+        self.numOrbs = numOrbs  # Total orbits for time array
+        self.timeval = self._setup_time_array()
         
         self.NSIDE = NSIDE
         self.colat,self.longs = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
+        
+        # Temperatures
+        ### NOT HERE YET, NEED TO RE-ORDER MORE STUFF FIRST.
+        
+        
+        ### JCS Things - want to make these automatic eventually.
+#        self.again_Tmap = again_Tmap
+#        self.again_t = again_t
+#        self.continueOrbit = continueOrbit
+
+        self._kepler_calcs()
         
         self._phases_SOpoints()
         self._phiT_visillum()
