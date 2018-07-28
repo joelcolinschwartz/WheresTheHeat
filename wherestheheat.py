@@ -522,8 +522,17 @@ class parcel(object):
         return
 
 
-     
     """ FUNCTIONS FOR DEFINING THE PLANET CONDITIONS, STELLAR FLUX """
+    
+    def _blackbody_bolo(self,T):
+        """Units of W/m^2"""
+        return self.stef_boltz*(T**4)
+    
+    def _blackbody_wavelength(self,microns,T):
+        """Units of W/m^2"""
+        ### PICK UP FROM HERE, PROBABLY NEED SCIPY QUAD IF YOU'RE GOING TO INTEGRATE STUFF
+        return
+    
 
     def Fstar(self,microns=8.0):
 
@@ -650,6 +659,7 @@ class parcel(object):
             if (abs(self.recirc_effic) <= 10**(-4)) or (self.radiate_time <= 10**(-4)):
                 self.Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
+                # Here advective frequency is constant- sign spcifies direction atmosphere rotates.
                 sn = lambda w: -1.0 if w < 0 else 1.0
                 delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq_peri)*2.0*pi)
                 
