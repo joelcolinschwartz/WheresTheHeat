@@ -112,12 +112,27 @@ class parcel(object):
     planck = (6.62607004)*(10**(-34))
     speed_light = (2.99792458)*(10**8)  # in m/s
     
-    _accept_motions = ['calcR','calcA','perR','perA','freqR','freqA']
+    _accept_motions = ('calcR','calcA','perR','perA','freqR','freqA')
+    
+    
+    def _setup_scaled_quants(self,Rstar,Mstar,Rplanet,smaxis):
+        """Blah blah blah."""
+        scl_Rstar = Rstar*self.radius_sun  # star radius
+        scl_Mstar = Mstar*self.mass_sun # star mass
+        
+        scl_Rplanet = Rplanet*self.radius_jupiter  # planet mass
+        scl_smaxis = smaxis*self.astro_unit  # semimajor axis
+        return scl_Rstar,scl_Mstar,scl_Rplanet,scl_smaxis
     
     
     def _calc_efactor(self,eccen):
         # For scaling ang. vel. at periastron (^-1 for period)
         return ((1-eccen)**(-1.5))*((1+eccen)**0.5)
+    
+    def _calc_T_irradiation(self):
+        """Blah blah blah."""
+        return self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
+    
     
     def _modify_arg_peri(self,ap):
         # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
@@ -197,106 +212,27 @@ class parcel(object):
         return radiate_time,recirc_effic
 
 
-    def _setup_time_array(self):
+    def _initial_time_array(self):
         """Blah blah blah."""
-        ts = lambda co: self.timeval[-1] if co else 0
-        t_start = ts(self.continueOrbit)
         t_end = self.Porb*self.numOrbs
         N = round(self.numOrbs*self.stepsPerOrbit)
-        timeval = np.linspace(t_start,t_start+t_end,num=N+1)
+        timeval = np.linspace(0,t_end,num=N+1)
         return timeval
     
-
-    # NEED TO MOVE THIS DOWN?? NOT USED YET.
-    def _setup_temperatures(self):
-        """Something something else."""
-        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
-        the_high_case = (np.sin(self.colat)/pi)**0.25
-        if np.isnan(self.recirc_effic):
-            pos_eps = abs(self.adv_freq_peri*self.radiate_time)
-        else:
-            pos_eps = abs(self.recirc_effic)  # Negative recirc_effic's don't play nice in "the_scaler".
-        the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
-        Tvals = the_scaler*the_high_case + (1.0-the_scaler)*the_low_case  # E.B. model parameterization
-        Tvals[Tvals<0.01] = 0.01
-        return Tvals
-            
-    ### ### ###
     
-    def _kepler_calcs(self):
-        """Calculates orbital separation (between planet and its star) as a function of time
-            and saves it in __init_.
-            Used in calculating incident flux.
-            
-            Note
-            ----
-            The fitter class calls this for an initial time array, changes the time array, then calls
-            it's own radius function to get these quantities for an input time array.
-            
-            It works for now but it's buggy. Might want to review this interaction.
-            
-            
-            Parameters
-            ----------
-            None
-            
-            Uses
-            -------
-            
-            pyasl from PyAstronomy to calculate true anomaly
-            
-            Returns
-            -------
-            
-            t (1D array)
-            Time array in seconds, of length pmax * int(Porb/ 24hrs)*steps.
-            
-            radius (1D array)
-            Same length as t. Orbital separation radius array (as a function of time)
-            
-            ang_vel (1D array)
-            Orbital angular velocity as a function of time.
-            
-            alpha (1D array)
-            Phase angle as a function of time.
-            (90-self.argp) - np.array(TA)*57.2958
-            
-            f (1D array)
-            Planet illuminated fraction
-            0.5*(1-np.cos(alpha*pi/180.0))
-            
-        """
+    def _setup_the_orbit(self):
+        """Ha ha ha."""
         # The KeplerEllipse coordinates are: x == "North", y == "East", z == "away from observer".
         # Our orbits are edge-on with inclination = 90 degrees, so orbits in x-z plane.
         # Longitude of ascending node doesn't really matter, so we set Omega = 0 degrees (along +x axis).
-        # Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
+        # Argument of periastron measured from ascending node at 1st quarter phase (alpha = 90 deg).
         # >>> SEE KEY NOTE IN _modify_arg_peri METHOD!!!
-        ke = pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
-        
-        # Periastron happens at t = 0 because "tau" in KeplerEllipse defaults to zero.
-        # Get info for conjunctions--transit and eclipse--when orbit crosses y-z plane:
-        conjunc_times = np.array(ke.yzCrossingTime())
-        conjunc_pos,conjunc_tru_anom = ke.xyzPos(conjunc_times,getTA=True)
-        # Eclipse has +z (transit -z) so argmax is eclipse index (0 or 1).
-        i_ecl = np.argmax(conjunc_pos[:,2])
-        
-        self.ecl_time = conjunc_times[i_ecl]
-        self.ecl_pos = conjunc_pos[i_ecl]
-        self.ecl_tru_anom = conjunc_tru_anom[i_ecl]
-        self.tr_time = conjunc_times[1-i_ecl]
-        self.tr_pos = conjunc_pos[1-i_ecl]
-        self.tr_tru_anom = conjunc_tru_anom[1-i_ecl]
-        
-#        # Make time array
-#        tmax = self.Porb*self.numOrbs
-#        Nmin = int(self.numOrbs*self.stepsPerOrbit)
-#        if self.continueOrbit:
-#            timeval = np.linspace(self.again_t,self.again_t + tmax,num=Nmin+1)
-#        else:
-#            timeval = np.linspace(0,tmax,num=Nmin+1)
-
-        radius = ke.radius(self.timeval)
-        pos,tru_anom = ke.xyzPos(self.timeval,getTA=True)
+        return pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
+    
+    def _calc_orbit_props(self):
+        """Stuff and things."""
+        radius = self.kep_E.radius(self.timeval)
+        orb_pos,tru_anom = self.kep_E.xyzPos(self.timeval,getTA=True)
         
         # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
         # So: alpha = 90 + arg_peri + tru_anom
@@ -304,156 +240,75 @@ class parcel(object):
         # Minus here because alpha = 0 at transit.
         frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
         
-#        self.timeval = timeval
-        self.radius = radius
-        self.tru_anom = tru_anom
-        self.alpha = alpha
-        self.frac_litup = frac_litup
-        return
+        return radius,orb_pos,tru_anom,alpha,frac_litup
     
-    def _phases_SOpoints(self):
-        """
-            Calculates coordinates of substellar point wrt to the location of the
-            substellar point at periastron (theta = Pi/2, phi =0).
-            Used to rotate the coordinate array array as a function of time .
-            
-            Also calculates coordinates of subobserver location wrt subobserver location at periastron.
-            
-            Note
-            ----
-            DEPENDS ON WADV!! CAN'T be stored in __init__ . I tried.
-            
-            Parameters
-            ----------
-            None
-            
-            
-            
-            Returns
-            -------
-            
-            t (1D array)
-            Time array in seconds, of lenght pmax * int(Porb/ 24hrs)*steps.
-            
-            zt (1D array)
-            Same lenght as t. Cumulative orbital angular displacement.
-            
-            SSP (1D array)
-            Same lenght as t. SSP = ((zt mod (2 Pi/ Rotation)) mod (2 Pi/ orbit));
-            Gives coordinate of substellar point relative
-            to the substellar point at periastron (located at theta = Pi/2, phi = 0).
-            
-            
-            SOP (1D array)
-            Coordinates of sub-observer point mod (2Pi/Rotation). Only used for testing.
-            
-        """
-        # Planet coordinates: longitude = 0 always points at star.
-        # So, longitude of gas parcels change throughout orbit. Colatitude stays the same.
-        # Gives: new_longs = orig_longs + Rotation effect (East) - Orbit effect (West)
-        shift_longs = self.longs[np.newaxis,:] + ((2.0*pi/self.Prot)*self.timeval[:,np.newaxis]) - self.tru_anom[:,np.newaxis]
-        longs_evolve = shift_longs % (2.0*pi)
+    def _find_trans_ecl(self):
+        """Blah blah blah."""
+        # Periastron happens at t = 0 because "tau" in KeplerEllipse defaults to zero.
+        # Get info for conjunctions--transit and eclipse--when orbit crosses y-z plane:
+        conjunc_times = np.array(self.kep_E.yzCrossingTime())
+        conjunc_pos,conjunc_tru_anom = self.kep_E.xyzPos(conjunc_times,getTA=True)
+        # Eclipse has +z (transit -z) so argmax is eclipse index (0 or 1).
+        i_ecl = np.argmax(conjunc_pos[:,2])
         
-        # Sub-stellar point: always long = 0 in our coordinates.
+        trans_time = conjunc_times[1-i_ecl]
+        trans_pos = conjunc_pos[1-i_ecl]
+        trans_tru_anom = conjunc_tru_anom[1-i_ecl]
+        ecl_time = conjunc_times[i_ecl]
+        ecl_pos = conjunc_pos[i_ecl]
+        ecl_tru_anom = conjunc_tru_anom[i_ecl]
+        
+        return trans_time,trans_pos,trans_tru_anom,ecl_time,ecl_pos,ecl_tru_anom
+    
+    
+    def _setup_colatlong(self,NSIDE):
+        """Blah blah blah."""
+        colat,longs = hp.pix2ang(NSIDE,list(range(hp.nside2npix(NSIDE))))
+        return colat,longs,NSIDE
+    
+    def _calc_longs(self):
+        """Blah blah blah."""
+        # Planet coordinates: longitude = 0 always points at star.
+        # Longitude of gas parcels change throughout orbit. Colatitude stays the same.
+        # So: new_longs = orig_longs +- Rotation effect (East/West) - Orbit effect (West)
+        new_longs = self.longs[np.newaxis,:] + (self.Wrot*self.timeval[:,np.newaxis]) - self.tru_anom[:,np.newaxis]
+        longs_evolve = new_longs % (2.0*pi)
+        return longs_evolve
+    
+    def _calc_vis_illum(self):
+        """Blah blah blah."""
+        # Sub-stellar point: always longitude = 0 in our coordinates.
         SSP_long = 0
-
-        # Sub-observer point: longitude from alpha (orbital phase for observer)
+        longs_minus_SSP = self.longs_evolve - SSP_long
+        
+        # Sub-observer point: get longitude from alpha (orbital phase for observer)
         # SOP_long = pi when alpha = 0, and Westward drift means -alpha.
         SOP_long = (pi - np.radians(self.alpha)) % (2.0*pi)
-
-        self.longs_evolve = longs_evolve
-        self.SSP_long = SSP_long
-        self.SOP_long = SOP_long
-        return
-    
-    def _phiT_visillum(self):
-        """Creates coordinate matrix wrt substellar point at each point in time.
-            Creates initial temperature array.
-            Calculates weight function to be applied to stellar flux to obtain
-            incident flux a each location on the planet, at each point in time.
-            
-            Note
-            ----
-            DEPENDS ON WADV; CAN'T BE STORED IN __init__
-            In places where initial temperature is 0, we replace T = 0 with T = 0.1 to avoid overflows.
-            At t = 0, the planet is at periastron and the substellar point
-            is located at theta = Pi/2, phi = 0
-            
-            Parameters
-            ----------
-            None
-            
-            Calls
-            -------
-            
-            self.SSP(pmax, steps) to get:
-            
-            t
-            1D time array of lenght pmax * int(Porb/ 24hrs)*steps;
-            in seconds
-            
-            SSP
-            1D array, same lenght as t. Gives coordinate of substellar point relative
-            to the substellar point at periastron (located at theta = Pi/2, phi = 0).
-            Used to rotate the coordinate array array as a function of time .
-            
-            Returns
-            -------
-            
-            d
-            3D position and temperature array;
-            
-            shape = (len(time), NPIX, 3)
-            
-            d[:,:,0] = thetas (latitude -- 0 to Pi, equator at Pi/2)
-            *remains constant as a function of time
-            
-            d[:,:,1] = phis (longitude -- 0 to 2Pi); phi(t) = phi(0)+SSP(t)
-            
-            
-            d[:,:,2] = starting temperature array
-            
-            Fweight
-            2-D array that represents the weight applied to the stellar flux
-            at each location on the planet to obtain incident flux at each moment in time.
-            --- shape is (lenght time, NPIX)
-            
-            coordsSOP (2D array)
-            coordinates relative to the suborserver point
-            
-            weight (2D array )
-            visibility array to be applied to flux array in coordinates wrt SSP
-            (shape is (#time steps, NPIX))
-            
-        """
-        if self.continueOrbit:
-            pass
-#            Tvals = self.again_Tmap  # WILL WANT TO RE-WORK THIS.
-        else:
-            the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
-            the_high_case = (np.sin(self.colat)/pi)**0.25
-            if np.isnan(self.recirc_effic):
-                pos_eps = abs(self.adv_freq_peri*self.radiate_time)  # Negative recirc_effic's don't play nice in "the_scaler".
-            else:
-                pos_eps = abs(self.recirc_effic)
-            the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
-            Tvals = the_scaler*the_high_case + (1.0 - the_scaler)*the_low_case  # E.B. model parameterization
-            Tvals[Tvals<0.1] = 0.1
-        
-        Tvals_evolve = np.zeros(self.longs_evolve.shape)
-        Tvals_evolve[0,:] += Tvals
-        
-        longs_minus_SSP = self.longs_evolve - self.SSP_long
-        longs_minus_SOP = self.longs_evolve - self.SOP_long[:,np.newaxis]
+        longs_minus_SOP = self.longs_evolve - SOP_long[:,np.newaxis]
         
         illumination = 0.5*(np.cos(longs_minus_SSP) + np.absolute(np.cos(longs_minus_SSP)))*np.sin(self.colat)
         visibility = 0.5*(np.cos(longs_minus_SOP) + np.absolute(np.cos(longs_minus_SOP)))*np.sin(self.colat)
         
-        self.Tvals_evolve = Tvals_evolve
-        self.illumination = illumination
-        self.visibility = visibility
-        return
+        return illumination,visibility,SSP_long,SOP_long
     
+
+    def _initial_temperature_array(self):
+        """Something something else."""
+        Tvals_evolve = np.zeros(self.longs_evolve.shape)
+        
+        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
+        the_high_case = (np.sin(self.colat)/pi)**0.25
+        if np.isnan(self.recirc_effic):
+            pos_eps = abs(self.adv_freq_peri*self.radiate_time)
+        else:
+            pos_eps = abs(self.recirc_effic)  # Negative recirc_effic's don't work in "the_scaler".
+        the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
+        Tvals = the_scaler*the_high_case + (1.0-the_scaler)*the_low_case  # E.B. model parameterization
+        Tvals[Tvals<0.01] = 0.01
+        
+        Tvals_evolve[0,:] += Tvals
+        return Tvals_evolve
+
     
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
                  Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
@@ -582,26 +437,18 @@ class parcel(object):
         
         """
         
-        self.continueOrbit = False  # HERE AS REMINDER, CLEAN UP LATER.
-        
         self.name = name
-
-        self.Teff = Teff  # star effective temp
-        self.Rstar = Rstar*self.radius_sun  # star radius
-        self.Mstar = Mstar*self.mass_sun # star mass
-        self.Rplanet = Rplanet*self.radius_jupiter  # planet mass
-        self.smaxis = smaxis*self.astro_unit  # semimajor axis
+        
+        self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
+        
         self.eccen = eccen  # eccentricity
-        # For scaling ang. vel. at periastron (^-1 for period)
-        self._ecc_factor = self._calc_efactor(eccen)
+        self._ecc_factor = self._calc_efactor(eccen)  # For scaling ang. vel. at periastron (^-1 for period)
         
         self.bondA = bondA  # planet Bond albedo
-        self.Tirrad = self.Teff*((1-self.bondA)**0.25)*((self.Rstar/(self.smaxis*(1-self.eccen)))**0.5)
+        self.Teff = Teff  # star effective temp
+        self.Tirrad = self._calc_T_irradiation()
         
-        # KEY!>>>: Argument of periastron measured from ascending node at 1st quarter pahse (alpha = 90 deg).
-        #     >>>: But in exoplanet literature, arg. peri. = 90 deg means periastron at TRANSIT (alpha = 0 deg).
-        #     >>>: (FYI, the arg. peri. quoted in papers are probably for the host stars.)
-        #     >>>: So, we add 180 deg to the input "arg_peri" for consistency. DON'T GET CONFUSED! :-)
+        ### We add 180 deg to the input "arg_peri", see this method. DON'T GET CONFUSED! :-)
         self.arg_peri = self._modify_arg_peri(arg_peri)
         
         if motions not in self._accept_motions:
@@ -617,24 +464,25 @@ class parcel(object):
         # When Porb < Prot, stepsPerRot will be steps per orbit.
         self.stepsPerOrbit = round(stepsPerRot*max(self.rotationsPerOrbit,1.0))
         self.numOrbs = numOrbs  # Total orbits for time array
-        self.timeval = self._setup_time_array()
+        self.timeval = self._initial_time_array()
         
-        self.NSIDE = NSIDE
-        self.colat,self.longs = hp.pix2ang(self.NSIDE,list(range(hp.nside2npix(self.NSIDE))))
+        ### Orbital stuff
+        self.kep_E = self._setup_the_orbit()
         
-        # Temperatures
-        ### NOT HERE YET, NEED TO RE-ORDER MORE STUFF FIRST.
+        (self.radius,self.orb_pos,
+         self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+        (self.trans_time,self.trans_pos,self.trans_tru_anom,
+         self.ecl_time,self.ecl_pos,self.ecl_tru_anom) = self._find_trans_ecl()
         
+        ### Atmosphere coordinates
+        self.colat,self.longs,self.NSIDE = self._setup_colatlong(NSIDE)
+        self.longs_evolve = self._calc_longs()
         
-        ### JCS Things - want to make these automatic eventually.
-#        self.again_Tmap = again_Tmap
-#        self.again_t = again_t
-#        self.continueOrbit = continueOrbit
-
-        self._kepler_calcs()
+        (self.illumination,self.visibility,
+         self.SSP_long,self.SOP_long) = self._calc_vis_illum()
         
-        self._phases_SOpoints()
-        self._phiT_visillum()
+        ### Temperatures
+        self.Tvals_evolve = self._initial_temperature_array()
         return
         
 
