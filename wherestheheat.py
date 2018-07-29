@@ -52,6 +52,7 @@ import numpy as np
 import healpy as hp
 #import matplotlib.pyplot as plt
 from PyAstronomy import pyasl
+from scipy import integrate
 
 pi = np.pi
 
@@ -264,7 +265,8 @@ class parcel(object):
     def _setup_colatlong(self,NSIDE):
         """Blah blah blah."""
         colat,longs = hp.pix2ang(NSIDE,list(range(hp.nside2npix(NSIDE))))
-        return colat,longs,NSIDE
+        pixel_sq_rad = hp.nside2pixarea(NSIDE)
+        return colat,longs,pixel_sq_rad,NSIDE
     
     def _calc_longs(self):
         """Blah blah blah."""
@@ -475,7 +477,7 @@ class parcel(object):
          self.ecl_time,self.ecl_pos,self.ecl_tru_anom) = self._find_trans_ecl()
         
         ### Atmosphere coordinates
-        self.colat,self.longs,self.NSIDE = self._setup_colatlong(NSIDE)
+        self.colat,self.longs,self.pixel_sq_rad,self.NSIDE = self._setup_colatlong(NSIDE)
         self.longs_evolve = self._calc_longs()
         
         (self.illumination,self.visibility,
@@ -520,18 +522,125 @@ class parcel(object):
         print(form_cols.format(self.adv_freq_peri*self.sec_per_hour,self.radiate_time/self.sec_per_hour,self.recirc_effic))
         
         return
-
-
-    """ FUNCTIONS FOR DEFINING THE PLANET CONDITIONS, STELLAR FLUX """
     
-    def _blackbody_bolo(self,T):
-        """Units of W/m^2"""
-        return self.stef_boltz*(T**4)
     
-    def _blackbody_wavelength(self,microns,T):
-        """Units of W/m^2"""
-        ### PICK UP FROM HERE, PROBABLY NEED SCIPY QUAD IF YOU'RE GOING TO INTEGRATE STUFF
+    ### Differential Equation
+    
+    def _initial_temperatures(self):
+        """Something something else."""
+        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
+        the_high_case = (np.sin(self.colat)/pi)**0.25
+        if np.isnan(self.recirc_effic):
+            pos_eps = abs(self.adv_freq_peri*self.radiate_time)
+        else:
+            pos_eps = abs(self.recirc_effic)  # Negative recirc_effic's don't work in "the_scaler".
+        the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
+        Tvals = the_scaler*the_high_case + (1.0-the_scaler)*the_low_case  # E.B. model parameterization
+        Tvals[Tvals<0.01] = 0.01
+        return Tvals
+    
+    
+    def _diff_eq_tempvals(self,start_Tvals):
+        """Something something else."""
+        Tvals_evolve = np.zeros(self.longs_evolve.shape)
+        Tvals_evolve[0,:] += start_Tvals
+        
+        if self.eccen == 0:
+            if (abs(self.recirc_effic) <= 10**(-4)):
+                Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
+            else:
+                # Here advective frequency is constant- sign spcifies direction atmosphere rotates.
+                sn = lambda w: -1.0 if w < 0 else 1.0
+                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq_peri)*2.0*pi)
+                
+                for i in range(1,len(self.timeval)):
+                    # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
+                    delta_Tvals = (1.0/self.recirc_effic)*(self.illumination[i-1,:] - (Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
+                    Tvals_evolve[i,:] = Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
+    
+        else:
+            # Normalized stellar flux
+            scaled_illum = self.illumination*((self.smaxis*(1-self.eccen)/self.radius[:,np.newaxis])**2)
+            
+            # Eccentric DE uses t_tilda = t/radiate_time
+            if self.radiate_time <= 10**(-4):
+                Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)
+            else:
+                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.radiate_time
+                
+                for i in range(1,len(self.timeval)):
+                    delta_Tvals = (scaled_illum[i-1,:] - (Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
+                    Tvals_evolve[i,:] = Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
+        
+        return Tvals_evolve
+    
+    def Evolve_AtmoTemps(self):
+        """Something something else."""
+        if True:
+            start_Tvals = self._initial_temperatures()
+        else:
+            pass
+    
+        self.Tvals_evolve = self._diff_eq_tempvals(start_Tvals)
+        
+        print('Evolving complete')
         return
+    
+
+    ### Blackbody methods
+    
+    def _blackbody_bolo(self,temperature):
+        """Units of W/m^2"""
+        return self.stef_boltz*(temperature**4)
+    
+    
+    def _plancks_law(self,wavelength,temperature):
+        """Blah blah blah."""
+        xpon = self.planck*self.speed_light/(wavelength*self.boltz*temperature)
+        # Leading pi from integral over solid angle, so wave/bolo units match.
+        return pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
+    
+    def _integral_plancks(self,wave_microns,band_microns,temperature):
+        """Blah blah blah."""
+        wavelength,bandwidth = wave_microns*(10**(-6)),band_microns*(10**(-6))
+        short_wave,long_wave = wavelength-(0.5*bandwidth),wavelength+(0.5*bandwidth)
+        return integrate.quad(self._plancks_law,short_wave,long_wave,args=(temperature))
+
+    ### THIS WORKS BUT THE INTEGRATION IS **REALLY REALLY** SLOW, OBVIOUSLY. NEED TO RE-THINK, PICK UP HERE. ###
+    def _blackbody_wavelength(self,wave_microns,band_microns,temperature):
+        """Units of W/m^2"""
+        vec_integral_plancks = np.vectorize(self._integral_plancks)
+        bb_values,bb_errors = vec_integral_plancks(wave_microns,band_microns,temperature)
+        return bb_values,bb_errors
+    
+
+    def Observed_Flux(self,kind='obs',wave_microns=8.0,band_microns=2.9,bolo=False):
+        """Blah blah blah."""
+        if kind == 'obs':
+            star_vis = pi
+            planet_vis = self.visibility
+        elif kind == 'hemi':
+            star_vis = 2.0*pi
+            planet_vis = (self.visibility > 0)
+        elif kind == 'sphere':
+            star_vis = 4.0*pi
+            planet_vis = 1.0
+
+        planet_Treal = self.Tvals_evolve*self.Tirrad
+        if bolo:
+            star_bb = self._blackbody_bolo(self.Teff)
+            planet_bb = self._blackbody_bolo(planet_Treal)
+        else:
+            star_bb,_ignore = self._blackbody_wavelength(wave_microns,band_microns,self.Teff)
+            planet_bb,_ignore = self._blackbody_wavelength(wave_microns,band_microns,planet_Treal)
+
+        star_flux = (star_vis*star_bb)*(self.Rstar**2)
+        planet_flux = (np.sum(planet_vis*planet_bb,axis=1)*self.pixel_sq_rad)*(self.Rplanet**2)
+        return planet_flux/star_flux
+
+
+    
+    ### ### ### ### ###
     
 
     def Fstar(self,microns=8.0):
