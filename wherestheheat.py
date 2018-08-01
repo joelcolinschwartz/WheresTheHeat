@@ -56,6 +56,23 @@ from scipy import integrate
 
 pi = np.pi
 
+with np.load('planck_integrals_1to10000K_01to30um.npz') as data:
+    _preplancked_temperatures = data['temperatures']
+    _preplancked_wavelengths = data['wavelengths']
+    _preplancked_integrals = data['integrals']
+
+def _make_value_diff_index_array(values):
+    """Assumes integers >= 0 only."""
+    val_i = values.astype(int)
+    # Set max index --> max value
+    dvi_vbased = np.zeros(val_i[-1]+1)
+    dvi_vbased[val_i] = val_i - np.arange(len(values))
+    return dvi_vbased.astype(int)
+
+_preplancked_waveN = len(_preplancked_wavelengths)
+# For general method that converts values to indices
+_preplancked_temperDvi_vbased = _make_value_diff_index_array(_preplancked_temperatures)
+
 
 class parcel(object):
 
@@ -589,33 +606,89 @@ class parcel(object):
 
     ### Blackbody methods
     
+    def _waveband_to_lowup(self,wave_microns,band_microns):
+        """Blah blah blah."""
+        return wave_microns-(0.5*band_microns),wave_microns+(0.5*band_microns)
+    
+    def _um_to_m(self,microns):
+        """Blah blah blah."""
+        return microns*(10**(-6))
+
+    
     def _blackbody_bolo(self,temperature):
         """Units of W/m^2"""
         return self.stef_boltz*(temperature**4)
-    
-    
+
+
     def _plancks_law(self,wavelength,temperature):
         """Blah blah blah."""
         xpon = self.planck*self.speed_light/(wavelength*self.boltz*temperature)
         # Leading pi from integral over solid angle, so wave/bolo units match.
         return pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
     
-    def _integral_plancks(self,wave_microns,band_microns,temperature):
+    def _integral_plancks(self,lower_microns,upper_microns,temperature):
         """Blah blah blah."""
-        wavelength,bandwidth = wave_microns*(10**(-6)),band_microns*(10**(-6))
-        short_wave,long_wave = wavelength-(0.5*bandwidth),wavelength+(0.5*bandwidth)
-        return integrate.quad(self._plancks_law,short_wave,long_wave,args=(temperature))
+        lower_wave,upper_wave = self._um_to_m(lower_microns),self._um_to_m(upper_microns)
+        return integrate.quad(self._plancks_law,lower_wave,upper_wave,args=(temperature))
 
-    ### THIS WORKS BUT THE INTEGRATION IS **REALLY REALLY** SLOW, OBVIOUSLY. NEED TO RE-THINK, PICK UP HERE. ###
-    def _blackbody_wavelength(self,wave_microns,band_microns,temperature):
+    def _blackbody_wavelength(self,lower_microns,upper_microns,temperature):
         """Units of W/m^2"""
         vec_integral_plancks = np.vectorize(self._integral_plancks)
-        bb_values,bb_errors = vec_integral_plancks(wave_microns,band_microns,temperature)
+        bb_values,bb_errors = vec_integral_plancks(lower_microns,upper_microns,temperature)
         return bb_values,bb_errors
     
-
-    def Observed_Flux(self,kind='obs',wave_microns=8.0,band_microns=2.9,bolo=False):
+    
+    def _get_wave_indices(self,lower_microns,upper_microns):
         """Blah blah blah."""
+        lower_i = np.argmin(np.absolute(_preplancked_wavelengths - lower_microns))
+        upper_i = np.argmin(np.absolute(_preplancked_wavelengths - upper_microns))
+        if lower_i == upper_i:
+            if upper_i == (_preplancked_waveN - 1):
+                lower_i -= 1
+            else:
+                upper_i += 1
+        return lower_i,upper_i
+    
+    def _change_temper_vals_to_inds(self,temper_v):
+        """Cool, looks like this works well!"""
+        tv_asi = temper_v.astype(int)
+        return tv_asi - _preplancked_temperDvi_vbased[tv_asi]
+    
+    def _get_temper_indices(self,temperature):
+        """Blah blah blah."""
+        high_t = _preplancked_temperatures[-1]
+        low_t = _preplancked_temperatures[0]
+        
+        if isinstance(temperature,np.ndarray):
+            temper_v = np.around(temperature)
+            high_check = (temper_v > high_t)
+            temper_v[high_check] = high_t
+            low_check = (temper_v < low_t)
+            temper_v[low_check] = low_t
+        else:
+            check = lambda t: high_t if t > high_t else (low_t if t < low_t else t)
+            temper_v = np.around(check(temperature))
+        
+        temper_i = self._change_temper_vals_to_inds(temper_v)
+        return temper_i
+
+    def _blackbody_preplancked(self,lower_microns,upper_microns,temperature):
+        """Units of W/m^2"""
+        lower_i,upper_i = self._get_wave_indices(lower_microns,upper_microns)
+        temper_i = self._get_temper_indices(temperature)
+
+        chosen_integrals = np.sum(_preplancked_integrals[:,lower_i:upper_i],axis=1)
+        return chosen_integrals[temper_i]
+    
+
+    def Observed_Flux(self,wave_band=False,a_microns=6.5,b_microns=9.5,
+                      kind='obs',run_integrals=False,bolo=False):
+        """Blah blah blah."""
+        if wave_band:
+            lower_microns,upper_microns = self._waveband_to_lowup(a_microns,b_microns)
+        else:
+            lower_microns,upper_microns = a_microns,b_microns
+        
         if kind == 'obs':
             star_vis = pi
             planet_vis = self.visibility
@@ -630,9 +703,13 @@ class parcel(object):
         if bolo:
             star_bb = self._blackbody_bolo(self.Teff)
             planet_bb = self._blackbody_bolo(planet_Treal)
+        elif run_integrals:
+            star_bb,_ignore = self._blackbody_wavelength(lower_microns,upper_microns,self.Teff)
+            planet_bb,_ignore = self._blackbody_wavelength(lower_microns,upper_microns,planet_Treal)
         else:
-            star_bb,_ignore = self._blackbody_wavelength(wave_microns,band_microns,self.Teff)
-            planet_bb,_ignore = self._blackbody_wavelength(wave_microns,band_microns,planet_Treal)
+            # Warning if Teff or planet_Treal > preplancked T's?
+            star_bb = self._blackbody_preplancked(lower_microns,upper_microns,self.Teff)
+            planet_bb = self._blackbody_preplancked(lower_microns,upper_microns,planet_Treal)
 
         star_flux = (star_vis*star_bb)*(self.Rstar**2)
         planet_flux = (np.sum(planet_vis*planet_bb,axis=1)*self.pixel_sq_rad)*(self.Rplanet**2)
