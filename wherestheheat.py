@@ -74,6 +74,30 @@ preplancked_waveN_ = len(preplancked_wavelengths_)
 preplancked_temper_valueinds_ = _make_value_indexer(preplancked_temperatures_)
 
 
+def RecircEfficiency_Convert(epsilon,kind='infinite'):
+    "Go between 0-inf <--> 0-1 epsilon."
+    a,b = 1.652,1.828
+    old_epsilon = np.absolute(np.atleast_1d(epsilon))  # Converts positive epsilons
+    
+    if kind == 'infinite':
+        new_epsilon = (old_epsilon**a)/(b + (old_epsilon**a))  # Estimated curly epsilon, Schwartz et al. 2017
+    elif kind == 'unity':
+        new_epsilon = np.zeros(old_epsilon.shape)
+        
+        high_check = (old_epsilon >= 1.0)
+        new_epsilon[high_check] = np.inf
+        
+        good_check = np.logical_not(high_check)
+        new_epsilon[good_check] = ((b*old_epsilon[good_check])/(1.0 - old_epsilon[good_check]))**(1.0/a)  # Inverse of above
+    else:
+        print('For RecircEfficiency_Convert, kind strings are:')
+        print('\"infinite\" to convert 0-inf into 0-1, or')
+        print('\"unity\" to convert 0-1 into 0-inf.')
+        return
+
+    return new_epsilon
+
+
 class parcel(object):
 
     """This class allows you to create a planet object and assign it appropriate orbital 
@@ -283,7 +307,8 @@ class parcel(object):
         """Blah blah blah."""
         colat,longs = hp.pix2ang(NSIDE,list(range(hp.nside2npix(NSIDE))))
         pixel_sq_rad = hp.nside2pixarea(NSIDE)
-        return colat,longs,pixel_sq_rad,NSIDE
+        on_equator = (colat == (pi/2))
+        return colat,longs,pixel_sq_rad,on_equator,NSIDE
     
     def _calc_longs(self):
         """Blah blah blah."""
@@ -494,7 +519,8 @@ class parcel(object):
          self.ecl_time,self.ecl_pos,self.ecl_tru_anom) = self._find_trans_ecl()
         
         ### Atmosphere coordinates
-        self.colat,self.longs,self.pixel_sq_rad,self.NSIDE = self._setup_colatlong(NSIDE)
+        (self.colat,self.longs,self.pixel_sq_rad,
+         self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
         self.longs_evolve = self._calc_longs()
         
         (self.illumination,self.visibility,
@@ -548,11 +574,11 @@ class parcel(object):
         the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
         the_high_case = (np.sin(self.colat)/pi)**0.25
         if np.isnan(self.recirc_effic):
-            pos_eps = abs(self.adv_freq_peri*self.radiate_time)
+            infinite_eps = self.adv_freq_peri*self.radiate_time
         else:
-            pos_eps = abs(self.recirc_effic)  # Negative recirc_effic's don't work in "the_scaler".
-        the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
-        Tvals = the_scaler*the_high_case + (1.0-the_scaler)*the_low_case  # E.B. model parameterization
+            infinite_eps = self.recirc_effic
+        unity_eps = RecircEfficiency_Convert(infinite_eps)  # Get 0-1 epsilon
+        Tvals = unity_eps*the_high_case + (1.0-unity_eps)*the_low_case  # E.B. model parameterization
         Tvals[Tvals<0.01] = 0.01
         return Tvals
     
@@ -741,10 +767,8 @@ class parcel(object):
             return planet_flux/star_flux
 
 
-    
-    ### ### ### ### ###
+    ### Temperature methods
 
-    
     def Calc_MaxDuskDawn_Temps(self):
         """Something.
             
@@ -752,112 +776,58 @@ class parcel(object):
         
         """
         start_time = int(self.stepsPerOrbit*(self.numOrbs-1))
+        Tevo_eq = self.Tvals_evolve[start_time:,self._on_equator]
+        long_eq = self.longs_evolve[start_time:,self._on_equator]
+        # To pair timestep with values
+        i_time = np.arange(Tevo_eq.shape[0])
         
-        # For now, each gives you values at every time step.
-        # Can do an extra check to get a single value.
-        max_args = np.argmax(self.Tvals_evolve[start_time:,:],axis=1)
-        max_angles = hp.pix2ang(self.NSIDE,max_args)
+        i_max = np.argmax(Tevo_eq,axis=1)
+        Ttilda_max = Tevo_eq[i_time,i_max]
+        angles_max = long_eq[i_time,i_max]
         
-        Ttilda_max = np.amax(self.Tvals_evolve[start_time:,:],axis=1)
-        # DUSK AND DAWN NEED WORK BECAUSE YOU FIXED THE COORDINATE SYSTEM TO THE SSP!!!
-        Ttilda_dusk = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,pi/2.0)]
-        Ttilda_dawn = self.Tvals_evolve[start_time:,hp.ang2pix(self.NSIDE,pi/2.0,-pi/2.0)]
-    
-        return max_angles,Ttilda_max,Ttilda_dusk,Ttilda_dawn
-    
-#    def findT (self):
-#        """ Finds numeric approximation of Max/ Min temperature on the planet.
-#        !!! DOES NOT WORK AS EXPECTED!!! should fix
-#
-#        Note
-#        ----
-#
-#        ONLY WORKS FOR CIRCULAR ORBITS.
-#
-#        Used for testing. Supposed to compare to the analytic approximations in
-#        the functions phi-max, Tmax, Tdusk, Tdawn, to
-#        check that the DE is working well. Or to check that the analytic approx.
-#        is working well.
-#
-#        Parameters
-#        ----------
-#        None
-#
-#        Calls
-#        -------
-#
-#        self.DE(), the 0 eccentricity branch.
-#
-#
-#
-#        Returns
-#        -------
-#
-#        Tmax (float)
-#            Maximum temperature on the planet in T/T0
-#
-#        Tdawn
-#            Dawn temperature on the planet in T/T0
-#
-#        Tdusk
-#            Dusk temperature on the planet in T/T0
-#
-#        """
-#
-#        #tmax = self.Prot*pmax
-#        #Nmin = int((pmax)*300)
-#        #deltat = tmax/Nmin
-#        pmaxi = self.pmaxi
-#        stepsi = self.stepsi
-#
-#        t,d = self.DE()
-#
-#
-#        #deltaphi = 2.0*pi/stepsi
-#        Tmax = np.max(np.max(d[int(self.stepsi*(self.pmaxi-1))::,:,2],axis =1))
-#        #Tmax = np.max(d[int(stepsi*(pmaxi-2))::,:,2])
-#
-#
-#        #for i in range(int(stepsi*(pmaxi-2)), int(stepsi*pmaxi)):
-#
-#
-#
-#                #if deltaphi >= np.abs(1.5*pi - (d[i,np.where(np.abs(d[i,:,0]-0.5*pi))< 0.1, np.where(np.abs(d[i,:,1]-1.5*pi))< 0.1]):
-#                    #print np.abs(1.5 - phi[i])*pi, 'dawn difference'
-#                    #Tdawn = T[i]
-#        Tdawn = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, -pi/2),2])
-#
-#        Tdusk = (d[int(stepsi*(pmaxi-1)),hp.ang2pix(self.NSIDE, pi/2, pi/2),2])
-#
-#
-#                #if deltaphi >= np.abs(2.5 - (phi[i]-2*(pmaxi-2))):
-#                    #print np.abs(2.5 - phi[i])*pi, 'dusk difference'
-#
-#                    #Tdusk = T[i]
-#
-#        return Tmax, Tdawn, Tdusk
+        # Prograde dusk at long = pi/2; doesn't matter that angles wrap.
+        i_dusk = np.argmin(np.absolute(long_eq - (pi/2)),axis=1)
+        Ttilda_dusk = Tevo_eq[i_time,i_dusk]
+        
+        # Prograde dawn at long = 3*pi/2; again doesn't matter that angles wrap.
+        i_dawn = np.argmin(np.absolute(long_eq - (3*pi/2)),axis=1)
+        Ttilda_dawn = Tevo_eq[i_time,i_dawn]
+        
+        # DO YOU WANT TO GET SINGLE VALUES PER ORBIT INSTEAD??
+        return angles_max,Ttilda_max,Ttilda_dusk,Ttilda_dawn
 
     
     def _max_temper(self,eps):
         """Something."""
-        x_0 = 2.9685
-        x_1 = 7.0623
-        x_2 = 1.1756
-        x_3 = -0.2958
-        x_4 = 0.1846
-        xpon = -x_2 + (x_3/(1.0 + (x_4*eps)))
-        func = x_0/(1.0 + x_1*(eps**xpon))
+        if eps == 0:
+            func = 0
+        else:
+            x_0 = 2.9685
+            x_1 = 7.0623
+            x_2 = 1.1756
+            x_3 = -0.2958
+            x_4 = 0.1846
+            xpon = -x_2 + (x_3/(1.0 + (x_4*eps)))
+            func = x_0/(1.0 + x_1*(eps**xpon))
         return np.cos(np.arctan(func))**(0.25)
     
     def _dusk_temper(self,eps):
         """Something."""
-        y_0 = 0.69073
-        y_1 = 7.5534
-        return ((pi**2)*((1.0 + (y_0/eps))**(-8)) + y_1*(eps**(-8/7)))**(-1/8)
+        if eps == 0:
+            val = 0
+        else:
+            y_0 = 0.69073
+            y_1 = 7.5534
+            val = ((pi**2)*((1.0 + (y_0/eps))**(-8)) + y_1*(eps**(-8/7)))**(-1/8)
+        return val
     
     def _dawn_temper(self,eps):
         """Something."""
-        return (pi + (3.0*pi/eps)**(4/3))**(-1/4)
+        if eps == 0:
+            val = 0
+        else:
+            val = (pi + (3.0*pi/eps)**(4/3))**(-1/4)
+        return val
     
     
     def Approx_MaxDuskDawn_Temps(self,epsilon="self"):
@@ -866,11 +836,13 @@ class parcel(object):
         Some bozo.
         
         """
+        # Want positive eps for sub-functions
         if isinstance(epsilon,(float,int)):
-            eps = epsilon
+            eps = abs(epsilon)
         else:
-            eps = self.recirc_effic
+            eps = abs(self.recirc_effic)
         
+        # NEGATIVE EPSILON: DUSK --> DAWN AND VICE VERSA; DO SOMETHING??
         # Each gives you single T values.
         Ttilda_max = self._max_temper(eps)
         Ttilda_dusk = self._dusk_temper(eps)
