@@ -61,17 +61,17 @@ with np.load('planck_integrals_1to10000K_01to30um.npz') as data:
     _preplancked_wavelengths = data['wavelengths']
     _preplancked_integrals = data['integrals']
 
-def _make_value_diff_index_array(values):
+def _make_value_indexer(values):
     """Assumes integers >= 0 only."""
-    val_i = values.astype(int)
-    # Set max index --> max value
-    dvi_vbased = np.zeros(val_i[-1]+1)
-    dvi_vbased[val_i] = val_i - np.arange(len(values))
-    return dvi_vbased.astype(int)
+    val_used = values.astype(int)
+    # 0 to max used
+    val_full = np.arange(val_used[-1] + 1)
+    full_to_used_inds = np.argmin(np.absolute(val_full[:,np.newaxis] - val_used[np.newaxis,:]),axis=1)
+    return full_to_used_inds
 
 _preplancked_waveN = len(_preplancked_wavelengths)
 # For general method that converts values to indices
-_preplancked_temperDvi_vbased = _make_value_diff_index_array(_preplancked_temperatures)
+_preplancked_temper_valueinds = _make_value_indexer(_preplancked_temperatures)
 
 
 class parcel(object):
@@ -622,9 +622,12 @@ class parcel(object):
 
     def _plancks_law(self,wavelength,temperature):
         """Blah blah blah."""
-        xpon = self.planck*self.speed_light/(wavelength*self.boltz*temperature)
+        try:
+            xpon = self.planck*self.speed_light/(wavelength*self.boltz*temperature)
+        except ZeroDivisionError:
+            xpon = np.inf
         # Leading pi from integral over solid angle, so wave/bolo units match.
-        return pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
+        return pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/np.expm1(xpon))
     
     def _integral_plancks(self,lower_microns,upper_microns,temperature):
         """Blah blah blah."""
@@ -648,28 +651,32 @@ class parcel(object):
             else:
                 upper_i += 1
         return lower_i,upper_i
+
+    def _blackbody_wavematchplancked(self,lower_microns,upper_microns,temperature):
+        """_blackbody_wavelength using preplancked wavelengths."""
+        lower_i,upper_i = self._get_wave_indices(lower_microns,upper_microns)
+        low_mic = _preplancked_wavelengths[lower_i]
+        upp_mic = _preplancked_wavelengths[upper_i]
+        bb_values,bb_errors = self._blackbody_wavelength(low_mic,upp_mic,temperature)
+        return bb_values,bb_errors
+
     
-    def _change_temper_vals_to_inds(self,temper_v):
+    def _change_temper_vals_to_inds(self,temper_val):
         """Cool, looks like this works well!"""
-        tv_asi = temper_v.astype(int)
-        return tv_asi - _preplancked_temperDvi_vbased[tv_asi]
+        return _preplancked_temper_valueinds[temper_val.astype(int)]
     
     def _get_temper_indices(self,temperature):
         """Blah blah blah."""
         high_t = _preplancked_temperatures[-1]
-        low_t = _preplancked_temperatures[0]
         
-        if isinstance(temperature,np.ndarray):
-            temper_v = np.around(temperature)
-            high_check = (temper_v > high_t)
-            temper_v[high_check] = high_t
-            low_check = (temper_v < low_t)
-            temper_v[low_check] = low_t
-        else:
-            check = lambda t: high_t if t > high_t else (low_t if t < low_t else t)
-            temper_v = np.around(check(temperature))
+        temper_val = np.around(np.atleast_1d(temperature))
+        # With "_blackbody_wavematchplancked", may not need these checks.
+        high_check = (temper_val > high_t)
+        temper_val[high_check] = high_t
+        zero_check = (temper_val < 0)
+        temper_val[zero_check] = 0
         
-        temper_i = self._change_temper_vals_to_inds(temper_v)
+        temper_i = self._change_temper_vals_to_inds(temper_val)
         return temper_i
 
     def _blackbody_preplancked(self,lower_microns,upper_microns,temperature):
@@ -704,12 +711,26 @@ class parcel(object):
             star_bb = self._blackbody_bolo(self.Teff)
             planet_bb = self._blackbody_bolo(planet_Treal)
         elif run_integrals:
-            star_bb,_ignore = self._blackbody_wavelength(lower_microns,upper_microns,self.Teff)
-            planet_bb,_ignore = self._blackbody_wavelength(lower_microns,upper_microns,planet_Treal)
+            star_bb,_foo = self._blackbody_wavelength(lower_microns,upper_microns,self.Teff)
+            planet_bb,_foo = self._blackbody_wavelength(lower_microns,upper_microns,planet_Treal)
         else:
-            # Warning if Teff or planet_Treal > preplancked T's?
-            star_bb = self._blackbody_preplancked(lower_microns,upper_microns,self.Teff)
-            planet_bb = self._blackbody_preplancked(lower_microns,upper_microns,planet_Treal)
+            high_t = _preplancked_temperatures[-1]
+            if self.Teff > high_t:
+                print('Observed_Flux: star T_eff is higher than in PrePlancked- integrating instead.')
+                star_bb,_foo = self._blackbody_wavematchplancked(lower_microns,upper_microns,self.Teff)
+            else:
+                star_bb = self._blackbody_preplancked(lower_microns,upper_microns,self.Teff)
+            
+            high_check = (planet_Treal > high_t)
+            if np.any(high_check):
+                message = 'Observed_Flux: {:.5f} of planet T\'s are higher than in PrePlancked- integrating these.'
+                print(message.format(np.sum(high_check)/high_check.size))
+                planet_bb = np.zeros(planet_Treal.shape)
+                planet_bb[high_check],_foo = self._blackbody_wavematchplancked(lower_microns,upper_microns,planet_Treal[high_check])
+                good_check = np.logical_not(high_check)
+                planet_bb[good_check] = self._blackbody_preplancked(lower_microns,upper_microns,planet_Treal[good_check])
+            else:
+                planet_bb = self._blackbody_preplancked(lower_microns,upper_microns,planet_Treal)
 
         star_flux = (star_vis*star_bb)*(self.Rstar**2)
         planet_flux = (np.sum(planet_vis*planet_bb,axis=1)*self.pixel_sq_rad)*(self.Rplanet**2)
