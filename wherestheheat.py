@@ -57,9 +57,9 @@ from scipy import integrate
 pi = np.pi
 
 with np.load('planck_integrals_1to10000K_01to30um.npz') as data:
-    _preplancked_temperatures = data['temperatures']
-    _preplancked_wavelengths = data['wavelengths']
-    _preplancked_integrals = data['integrals']
+    preplancked_temperatures_ = data['temperatures']
+    preplancked_wavelengths_ = data['wavelengths']
+    preplancked_integrals_ = data['integrals']
 
 def _make_value_indexer(values):
     """Assumes integers >= 0 only."""
@@ -69,9 +69,9 @@ def _make_value_indexer(values):
     full_to_used_inds = np.argmin(np.absolute(val_full[:,np.newaxis] - val_used[np.newaxis,:]),axis=1)
     return full_to_used_inds
 
-_preplancked_waveN = len(_preplancked_wavelengths)
+preplancked_waveN_ = len(preplancked_wavelengths_)
 # For general method that converts values to indices
-_preplancked_temper_valueinds = _make_value_indexer(_preplancked_temperatures)
+preplancked_temper_valueinds_ = _make_value_indexer(preplancked_temperatures_)
 
 
 class parcel(object):
@@ -615,7 +615,7 @@ class parcel(object):
         return microns*(10**(-6))
 
     
-    def _blackbody_bolo(self,temperature):
+    def _blackbody_bolometric(self,temperature):
         """Units of W/m^2"""
         return self.stef_boltz*(temperature**4)
 
@@ -643,31 +643,31 @@ class parcel(object):
     
     def _get_wave_indices(self,lower_microns,upper_microns):
         """Blah blah blah."""
-        lower_i = np.argmin(np.absolute(_preplancked_wavelengths - lower_microns))
-        upper_i = np.argmin(np.absolute(_preplancked_wavelengths - upper_microns))
+        lower_i = np.argmin(np.absolute(preplancked_wavelengths_ - lower_microns))
+        upper_i = np.argmin(np.absolute(preplancked_wavelengths_ - upper_microns))
         if lower_i == upper_i:
-            if upper_i == (_preplancked_waveN - 1):
+            if upper_i == (preplancked_waveN_ - 1):
                 lower_i -= 1
             else:
                 upper_i += 1
         return lower_i,upper_i
 
     def _blackbody_wavematchplancked(self,lower_microns,upper_microns,temperature):
-        """_blackbody_wavelength using preplancked wavelengths."""
+        """_blackbody_wavelength but using preplancked wavelengths."""
         lower_i,upper_i = self._get_wave_indices(lower_microns,upper_microns)
-        low_mic = _preplancked_wavelengths[lower_i]
-        upp_mic = _preplancked_wavelengths[upper_i]
+        low_mic = preplancked_wavelengths_[lower_i]
+        upp_mic = preplancked_wavelengths_[upper_i]
         bb_values,bb_errors = self._blackbody_wavelength(low_mic,upp_mic,temperature)
         return bb_values,bb_errors
 
     
     def _change_temper_vals_to_inds(self,temper_val):
         """Cool, looks like this works well!"""
-        return _preplancked_temper_valueinds[temper_val.astype(int)]
+        return preplancked_temper_valueinds_[temper_val.astype(int)]
     
     def _get_temper_indices(self,temperature):
         """Blah blah blah."""
-        high_t = _preplancked_temperatures[-1]
+        high_t = preplancked_temperatures_[-1]
         
         temper_val = np.around(np.atleast_1d(temperature))
         # With "_blackbody_wavematchplancked", may not need these checks.
@@ -684,12 +684,12 @@ class parcel(object):
         lower_i,upper_i = self._get_wave_indices(lower_microns,upper_microns)
         temper_i = self._get_temper_indices(temperature)
 
-        chosen_integrals = np.sum(_preplancked_integrals[:,lower_i:upper_i],axis=1)
+        chosen_integrals = np.sum(preplancked_integrals_[:,lower_i:upper_i],axis=1)
         return chosen_integrals[temper_i]
     
 
     def Observed_Flux(self,wave_band=False,a_microns=6.5,b_microns=9.5,
-                      kind='obs',run_integrals=False,bolo=False):
+                      kind='obs',run_integrals=False,bolo=False,separate=False):
         """Blah blah blah."""
         if wave_band:
             lower_microns,upper_microns = self._waveband_to_lowup(a_microns,b_microns)
@@ -708,22 +708,22 @@ class parcel(object):
 
         planet_Treal = self.Tvals_evolve*self.Tirrad
         if bolo:
-            star_bb = self._blackbody_bolo(self.Teff)
-            planet_bb = self._blackbody_bolo(planet_Treal)
+            star_bb = self._blackbody_bolometric(self.Teff)
+            planet_bb = self._blackbody_bolometric(planet_Treal)
         elif run_integrals:
             star_bb,_foo = self._blackbody_wavelength(lower_microns,upper_microns,self.Teff)
             planet_bb,_foo = self._blackbody_wavelength(lower_microns,upper_microns,planet_Treal)
         else:
-            high_t = _preplancked_temperatures[-1]
+            high_t = preplancked_temperatures_[-1]
             if self.Teff > high_t:
-                print('Observed_Flux: star T_eff is higher than in PrePlancked- integrating instead.')
+                print('Observed_Flux: star T_eff is higher than PrePlancked values- integrating instead.')
                 star_bb,_foo = self._blackbody_wavematchplancked(lower_microns,upper_microns,self.Teff)
             else:
                 star_bb = self._blackbody_preplancked(lower_microns,upper_microns,self.Teff)
             
             high_check = (planet_Treal > high_t)
             if np.any(high_check):
-                message = 'Observed_Flux: {:.5f} of planet T\'s are higher than in PrePlancked- integrating these.'
+                message = 'Observed_Flux: {:.5f} of planet T\'s are higher than PrePlancked values- integrating these.'
                 print(message.format(np.sum(high_check)/high_check.size))
                 planet_bb = np.zeros(planet_Treal.shape)
                 planet_bb[high_check],_foo = self._blackbody_wavematchplancked(lower_microns,upper_microns,planet_Treal[high_check])
@@ -734,375 +734,15 @@ class parcel(object):
 
         star_flux = (star_vis*star_bb)*(self.Rstar**2)
         planet_flux = (np.sum(planet_vis*planet_bb,axis=1)*self.pixel_sq_rad)*(self.Rplanet**2)
-        return planet_flux/star_flux
+        
+        if separate:
+            return planet_flux,star_flux
+        else:
+            return planet_flux/star_flux
 
 
     
     ### ### ### ### ###
-    
-
-    def Fstar(self,microns=8.0):
-
-        """Calculates total flux emmitted by the star and wavelength dependent flux.
-        
-        Used for normalizing planet flux. (i.e. to express flux emmitted by the planet as 
-        a fraction of stellar flux. )
-        
-        Note
-        ----
-             F = stef_boltz * Teff**4 * Pi * Rstar**2.
-             Fwv = BBflux(wv) * Pi * Rstar**2
-             
-    
-        Parameters
-        ----------
-            wv (float)
-                wavelength we are interested in micrometers.
-
-            
-        Returns
-        -------
-            
-                F (float)
-                    Total flux
-                
-                Fwv (float)
-                    Flux emmitted at the specified wavelength.
-
-        """
-        bolo_blackbody = self.stef_boltz*(self.Teff**4)
-        wavelength = microns*(10**(-6))  # microns to meters
-        xpon = self.planck*self.speed_light/(wavelength*self.boltz*self.Teff)
-        ## So bolo and wave units match, leading "pi" is from integral over solid angle.
-        wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
-        
-        return bolo_blackbody*(4.0*pi*(self.Rstar**2)),wave_blackbody*(4.0*pi*(self.Rstar**2))
-        
-        
-    def Finc(self):
-        """Total (all wavelengths) flux incident on substellar point as 
-        a function of time (position in the orbit).
-        
-        Used in self.DE for '"incoming energy" value as (Finc/ Finc_max)*Fweight;
-        Fweight comes from self.illum
-        
-
-        Note
-        ----
-             stef_boltz*Teff**4*(Rstar/r(t))**2.
-        
-        Parameters 
-        ----------
-            None. 
-            
-        Returns
-        -------
-            
-                Finc (1D array)
-                    Theoretical total flux incident on substellar point at each moment on time;
-                    lenght pmax * int(Porb/ 24hrs)*steps. 
-
-        """
-        ## Only scales sigma*T^4, may need to adjust later.
-        return self.stef_boltz*(self.Teff**4)*((self.Rstar/self.radius)**2)
-
-
-    def DE(self):
-        """DE that calculates temperature of each gas parcel as a
-        function of time . Relies on self.illum() to
-        pass it a time array and coordinates.
-
-        Note
-        ----
-        Solves the DE by repeatedly adding dT to previous T value.
-        Might want to change this to a more sophisticated
-        differential equation solver.
-        
-
-        Parameters
-        ----------
-        None
-        
-        Calls
-        -------
-        
-        self.illum (pmax, steps, NSIDE) to get:
-            t
-                1D time array of lenght pmax * int(Porb/ 24hrs)*steps;
-                in seconds
-                (if called by a fitter object it'll take the custom time array)
-            
-            d
-                3D position and temperature array;
-                shape = (len(time), NPIX, 3)
-                
-                3 refers to the 3 columns :
-                d[:,:,0] = thetas - latitude -- 0 to Pi
-                
-                d[:,:,1] = phis - longitude -- 0 to Pi
-                (at t = 0, the planet is at periastron and the substellar point
-                is located at theta = Pi	/2, phi = 0)
-                
-                d[:,:,2] = starting temperature array
-        
-        
-        Returns
-        -------
-        t
-            if called by fitter object, will return the backend of the time array
-            (i.e. the part you need for fitting)
-            
-            if called by parcel object will return t unchanged
-            
-        d
-            will return the part of the array that matches t, depending on who's calling the function.
-            
-            only other change is to replace the starting temperature values
-            with values calculated by the DE
-            
-
-        """
-        if self.eccen == 0:
-            if (abs(self.recirc_effic) <= 10**(-4)) or (self.radiate_time <= 10**(-4)):
-                self.Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
-            else:
-                # Here advective frequency is constant- sign spcifies direction atmosphere rotates.
-                sn = lambda w: -1.0 if w < 0 else 1.0
-                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq_peri)*2.0*pi)
-                
-                for i in range(1,len(self.timeval)):
-                    # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
-                    delta_Tvals = (1.0/self.recirc_effic)*(self.illumination[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
-                    self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
-        else:
-            # Normalized stellar flux, can clean up becasue A LOT cancels.
-#            flux_inc = self.Finc()[:,np.newaxis]
-#            flux_max = self.stef_boltz*(self.Teff**4)*((self.Rstar/(self.smaxis*(1.0-self.eccen)))**2)
-#            scaled_illum = (flux_inc/flux_max)*self.illumination
-            scaled_illum = self.illumination*((self.smaxis*(1-self.eccen)/self.radius[:,np.newaxis])**2)
-            
-            # Eccentric DE uses t_tilda = t/radiate_time
-            if self.radiate_time <= 10**(-4):
-                self.Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)  # Why divided by stef_boltz before??
-            else:
-                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.radiate_time
-                
-                for i in range(1,len(self.timeval)):
-                    delta_Tvals = (scaled_illum[i-1,:] - (self.Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
-                    self.Tvals_evolve[i,:] = self.Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
-                    
-        return
-    
-    
-    def Fleaving(self,microns=8.0):
-        """Calculates outgoing planetary flux (Total and wavelength dependant)
-        from the temperature values coming from the DE. 
-
-            Note
-            ----
-            Has an overflow problem sometimes, especially for tau_rad ~ 0. That causes nightside 
-            temperatures to be close to 0 and the division in BB flux blows up.
-        
-    
-            Parameters
-            ----------
-                
-            wavelength
-                in micrometers; wavelength to calculate the flux at. 
-                
-            MAP:
-                Default is False.
-                Use True if you want to draw flux leaving from the planet on a map.
-                
-                
-            Calls
-            -------
-            
-            self.DE (pmax, steps, NSIDE) to get:
-                t
-                    1D time array 
-                
-                d 
-                    3D position and temperature array;
-                    shape = (len(time), NPIX, 3)
-                    
-                    3 refers to the 3 columns : 
-                    d[:,:,0] = thetas - latitude -- 0 to Pi	 
-                    
-                    d[:,:,1] = phis - longitude -- 0 to Pi	
-                    (at t = 0, the planet is at periastron and the substellar point 
-                    is located at theta = Pi	/2, phi = 0)
-                    
-                    d[:,:,2] = surface temperature array
-                    
-            self.shuffle(d, Fmap_wv, NSIDE) to get 
-                
-                Fmap_wvpix
-                    2D flux array rearraged so the pixels are drawn at the right spots. 
-                    see shuffle()
-                    
-            
-            
-            Returns
-            -------
-            If MAP = False:
-                t
-                unchanged
-                
-                d 
-                    unchanged
-                    
-                Fmap_wv 
-                    2D array[time, NPIX flux values]. outgoing flux map
-                    
-            If MAP = True:
-
-                t
-                    unchanged
-                    
-                d 
-                    unchanged
-                    
-                Fmap_wv 
-                    2D array[time, NPIX flux values]. outgoing flux map 
-                    
-                Fmap_wvpix 
-                    2D array[time, NPIX flux values]. outgoing flux map rearraged 
-                    for drawing. see shuffle() 
-                    
-                Fleavingwv
-                    1D array, contains  flux (wavelength dependant) integrated over planet surface
-                    at each moment in time. This isnt super useful because you wouldnt 
-                    be able to see all the flux coming from the planet.
-                    
-                Ftotal
-                    1D array, contains flux (all wavelengths) integrated over planet surface
-                    at each moment in time. Again, not super useful unless you're making figures.
-   
-        """
-        self.DE()  # May want to restructure this.
-        
-        bolo_blackbody = self.stef_boltz*((self.Tvals_evolve*self.Tirrad)**4)
-        wavelength = microns*(10**(-6))  # microns to meters
-        xpon = self.planck*self.speed_light/(wavelength*self.boltz*(self.Tvals_evolve*self.Tirrad))
-        ## So bolo and wave units match, leading "pi" is from integral over solid angle.
-        wave_blackbody = pi*(2.0*self.planck*(self.speed_light**2)/(wavelength**5))*(1.0/(np.exp(xpon) - 1.0))
-        
-        return bolo_blackbody,wave_blackbody
-    
-    
-    def Fobs(self,microns=8.0,hemi=True,sphere=True):  ###JCS: Added 'HEMISUM' 02/15/17...and now it's gone ;-)
-        """ Calculates outgoing planetary flux as seen by an observer (wavelength dependant only).
-        
-
-            Note
-            ----
-            THIS IS THE FUNCTION THAT WILL GIVE YOU THE LIGHT CURVE. 
-            
-            Remark: i don't totally trust the shuffle function. But it's only used for 
-            drawing stuff right now, the outgoing flux is calculated without it.
-        
-    
-            Parameters
-            ----------
-
-            wavelength
-                in micrometers; wavelength to calculate the flux at. 
-                
-            PRINT (bool):
-                Option to print the results to a text file. Only works if MAP is also True.
-                
-            MAP (bool):
-                Option to return a bunch of stuff i use for making figures.
-                
-            Calls
-            -------
-            
-            self.Fleaving(wavelength) to get :
-
-                Fmap_wv 
-                    2D array[time, NPIX flux values]. outgoing flux map 
-                    
-                Fmap_wvpix 
-                    2D array[time, NPIX flux values]. outgoing flux map rearraged 
-                    for drawing. see shuffle() 
-
-                
-            self.visibility(d) to get:
-                t
-                    time array in seconds
-                    
-                d
-                    3D coordinate and temperature array
-                    
-                weight
-                    2D array; [time, position (angle)] ; visibility function
-
-
-            self.shuffle(d) to get:
-                
-                weightpix
-                    2D array; [time, position(pixel number)] ; rearranged visibility 
-                    function for drawing with hp.mollview(). 
-
-   
-            Returns
-            -------
-            If MAP = True:
-            t, d, Fmapwvobs, weight, weightpix, Fwv
-
-            t
-                unchanged
-                
-            d 
-                unchanged
-                
-            Fmapwvobs 
-                2D array[time, NPIX flux values]; outgoing flux map; 
-                rearranged for drawing on a hp.mollview map. 
-                *you want this one
-                
-            weight 
-                2D array; [time, position (angle)] ; visibility function
-                
-            weightpix
-                2D array; [time, position(pixel number)] ; rearranged visibility 
-                function for drawing with hp.mollview().  
-                
-            Fwv
-                1D array, contains observed flux (wavelength dependant) integrated over planet surface
-                at each moment in time.
-                *and this one 
-                
-                if Print = TRUE:
-                    also makes a text file with all these arrays. This is actually not useful, 
-                    the thing runs fast enough that you dont need to save results. 
-                    
-                
-            
-            If Map = False (default)
-            
-            t, d, Fwv
-        """
-        bolo_blackbody,wave_blackbody = self.Fleaving(microns)
-        
-        unit_area = hp.nside2pixarea(self.NSIDE)*(self.Rplanet**2)
-        
-        # Observer flux (i.e. light curve)
-        flux_bolo_obs = np.sum(self.visibility*bolo_blackbody*unit_area,axis=1)
-        flux_wave_obs = np.sum(self.visibility*wave_blackbody*unit_area,axis=1)
-        
-        # Hemispere flux (i.e. without observer visibility)
-        hemi_visible = (self.visibility > 0)
-        flux_bolo_hemi = np.sum(hemi_visible*bolo_blackbody*unit_area,axis=1)
-        flux_wave_hemi = np.sum(hemi_visible*wave_blackbody*unit_area,axis=1)
-        
-        # Planet flux (i.e. over whole sphere)
-        flux_bolo_planet = np.sum(bolo_blackbody*unit_area,axis=1)
-        flux_wave_planet = np.sum(wave_blackbody*unit_area,axis=1)
-        
-        # Probably want to choose returns at some point.
-        return flux_bolo_obs,flux_wave_obs,flux_bolo_hemi,flux_wave_hemi,flux_bolo_planet,flux_wave_planet
 
     
     def Calc_MaxDuskDawn_Temps(self):
