@@ -50,9 +50,9 @@ It can be used for fitting for parameters tau_rad and wadv
 
 import numpy as np
 import healpy as hp
-#import matplotlib.pyplot as plt
-from PyAstronomy import pyasl
+import matplotlib.pyplot as plt
 from scipy import integrate
+from PyAstronomy import pyasl
 
 pi = np.pi
 
@@ -564,6 +564,63 @@ class parcel(object):
         form_cols = '{:^26.3f} {:^22.3f} {:^10.3f}'
         print(form_cols.format(self.adv_freq_peri*self.sec_per_hour,self.radiate_time/self.sec_per_hour,self.recirc_effic))
         
+        return
+    
+    
+    ### Draw orbit
+    
+    def _orbit_auscale(self,pos):
+        return pos/self.astro_unit
+    
+    def _orbit_scatter(self,pos,color,mark,ize):
+        au_pos = self._orbit_auscale(pos)
+        plt.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2)
+        return
+    
+    def _orbit_window(self,au_pos):
+        au_sep = max(np.ptp(au_pos[:,0]),np.ptp(au_pos[:,2]))
+        au_cent = self.kep_E.xyzCenter()/self.astro_unit
+        
+        f = 1.1  # Padding factor
+        dist = f*(0.5*au_sep)  # Distance from center of ellipse
+        plt.xlim(au_cent[0]-dist,au_cent[0]+dist)
+        plt.ylim(au_cent[2]-dist,au_cent[2]+dist)
+        return
+    
+    def _orbit_lines(self,pos):
+        au_pos = self._orbit_auscale(pos)
+        plt.plot([0,au_pos[0]],[0,au_pos[2]],c='0.5',ls=':',zorder=0)
+        return
+    
+    def Draw_OrbitOverhead(self):
+        """Something something else."""
+        plt.figure(figsize=(7,7))
+        
+        i_one = int(self.stepsPerOrbit+1)
+        au_pos = self.orb_pos[:i_one]/self.astro_unit
+        plt.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
+        
+        plt.scatter(0,0,c='y',marker='o',s=800,edgecolors='k',zorder=1)
+        
+        ascend_node,descend_node = self.kep_E.xyzNodes_LOSZ()
+        self._orbit_scatter(ascend_node,'g','<',150)
+        self._orbit_lines(ascend_node)
+        self._orbit_scatter(descend_node,'m','>',150)
+        self._orbit_lines(descend_node)
+        
+        periastron,apastron = self.kep_E.xyzPeriastron(),self.kep_E.xyzApastron()
+        self._orbit_scatter(periastron,'r','D',100)
+        self._orbit_scatter(apastron,'c','s',100)
+        
+        self._orbit_scatter(self.ecl_pos,'y','v',150)
+        self._orbit_lines(self.ecl_pos)
+        self._orbit_scatter(self.trans_pos,'b','^',150)
+        self._orbit_lines(self.trans_pos)
+        
+        self._orbit_window(au_pos)
+        
+        plt.tight_layout()
+        plt.show()
         return
     
     
