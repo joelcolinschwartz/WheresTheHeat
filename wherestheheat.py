@@ -90,7 +90,7 @@ def RecircEfficiency_Convert(epsilon,kind='infinite'):
         good_check = np.logical_not(high_check)
         new_epsilon[good_check] = ((b*old_epsilon[good_check])/(1.0 - old_epsilon[good_check]))**(1.0/a)  # Inverse of above
     else:
-        print('For RecircEfficiency_Convert, kind strings are:')
+        print('RecircEfficiency_Convert error: strings for *kind* are')
         print('\"infinite\" to convert 0-inf into 0-1, or')
         print('\"unity\" to convert 0-1 into 0-inf.')
         return
@@ -155,6 +155,7 @@ class parcel(object):
     speed_light = (2.99792458)*(10**8)  # in m/s
     
     _accept_motions = ('calcR','calcA','perR','perA','freqR','freqA')
+    _accept_begins = ('eclipse','transit','ascending','descending','periastron','apastron')
     
     
     def _setup_scaled_quants(self,Rstar,Mstar,Rplanet,smaxis):
@@ -225,7 +226,7 @@ class parcel(object):
                 
                 if self.adv_freq_peri == 0:
                     if recirc_effic != 0:
-                        print('Constructor warning: atmosphere\'s advective freq. is 0, \"recirc_effic\" is not.')
+                        print('Constructor warning: atmosphere\'s advective freq. is 0, *recirc_effic* is not.')
                         print('    Your planet has no winds, but you want to transport heat.')
                         print('    I am setting radiative time to infinity, but your system is not self-consistent.')
                         print('')
@@ -237,13 +238,13 @@ class parcel(object):
                     radiate_time = abs(recirc_effic/self.adv_freq_peri)
                     # Check for mismatched wind direction
                     if abs(np.sign(recirc_effic)-np.sign(self.adv_freq_peri)) == 2:
-                        print('Constructor warning: atmosphere\'s advective freq. and \"recirc_effic\" have opposite signs.')
+                        print('Constructor warning: atmosphere\'s advective freq. and *recirc_effic* have opposite signs.')
                         print('    Your planet\'s winds flow one way, but you want them going the other way.')
                         print('    Radiative time is defined, but your system is not self-consistent.')
                         print('')
 
             else:
-                print('Constructor ignore: you can only set \"recirc_effic\" for circular orbits.')
+                print('Constructor ignore: you can only set *recirc_effic* for circular orbits.')
                 recirc_effic = np.nan
                 radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
             
@@ -496,7 +497,7 @@ class parcel(object):
         self.arg_peri = self._modify_arg_peri(arg_peri)
         
         if motions not in self._accept_motions:
-            print('Constructor error: \"motions\" should be one of these strings:')
+            print('Constructor error: strings for *motions* are')
             print(self._accept_motions)
             return
         self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(motions,orbval,rotval)
@@ -572,9 +573,9 @@ class parcel(object):
     def _orbit_auscale(self,pos):
         return pos/self.astro_unit
     
-    def _orbit_scatter(self,pos,color,mark,ize):
+    def _orbit_scatter(self,pos,color,mark,ize,lab):
         au_pos = self._orbit_auscale(pos)
-        plt.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2)
+        plt.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
         return
     
     def _orbit_window(self,au_pos):
@@ -592,7 +593,7 @@ class parcel(object):
         plt.plot([0,au_pos[0]],[0,au_pos[2]],c='0.5',ls=':',zorder=0)
         return
     
-    def Draw_OrbitOverhead(self):
+    def Draw_OrbitOverhead(self,show_legend=True):
         """Something something else."""
         plt.figure(figsize=(7,7))
         
@@ -602,24 +603,29 @@ class parcel(object):
         
         plt.scatter(0,0,c='y',marker='o',s=800,edgecolors='k',zorder=1)
         
+        self._orbit_scatter(self.trans_pos,'b','^',150,'Transit')
+        self._orbit_lines(self.trans_pos)
+        self._orbit_scatter(self.ecl_pos,'y','v',150,'Eclipse')
+        self._orbit_lines(self.ecl_pos)
+        
         ascend_node,descend_node = self.kep_E.xyzNodes_LOSZ()
-        self._orbit_scatter(ascend_node,'g','<',150)
+        self._orbit_scatter(ascend_node,'g','<',150,'Ascending Node')
         self._orbit_lines(ascend_node)
-        self._orbit_scatter(descend_node,'m','>',150)
+        self._orbit_scatter(descend_node,'m','>',150,'Descending Node')
         self._orbit_lines(descend_node)
         
         periastron,apastron = self.kep_E.xyzPeriastron(),self.kep_E.xyzApastron()
-        self._orbit_scatter(periastron,'r','D',100)
-        self._orbit_scatter(apastron,'c','s',100)
-        
-        self._orbit_scatter(self.ecl_pos,'y','v',150)
-        self._orbit_lines(self.ecl_pos)
-        self._orbit_scatter(self.trans_pos,'b','^',150)
-        self._orbit_lines(self.trans_pos)
+        self._orbit_scatter(periastron,'r','D',100,'Periastron')
+        self._orbit_scatter(apastron,'c','s',100,'Apastron')
         
         self._orbit_window(au_pos)
-        
+        if show_legend:
+            plt.legend(loc='best')
+
+        plt.gca().set_aspect('equal')
         plt.tight_layout()
+        self.fig_orbit = plt.gcf()
+
         plt.show()
         return
     
@@ -822,6 +828,77 @@ class parcel(object):
             return planet_flux,star_flux
         else:
             return planet_flux/star_flux
+
+
+    ### Draw Light Curve
+    
+    def _light_phases(self,begins):
+        """Blah blah blah."""
+        if begins == 'periastron':
+            i_end = int(round(self.stepsPerOrbit*self.numOrbs))
+        elif begins == 'apastron':
+            i_end = int(round(self.stepsPerOrbit*(self.numOrbs-0.5)))
+        else:
+            # +1 so periastron is not included twice.
+            fin_orb_start = int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
+            if begins == 'transit':
+                fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
+            elif begins == 'eclipse':
+                fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
+            elif begins == 'ascending':
+                fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
+            elif begins == 'descending':
+                fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
+            
+            i_end = fi_end + fin_orb_start
+            
+        i_start = i_end - int(self.stepsPerOrbit)
+        return i_start,i_end+1  # +1 to have initial phase repeated (keep??)
+    
+    def _relative_time(self,t_act,i_start):
+        """Blah blah blah."""
+        return (t_act - self.timeval[i_start])/self.Porb
+    
+    def _transecl_scaler(self,t_act,i_start):
+        """Blah blah blah."""
+        return np.ceil((self.timeval[i_start]-t_act)/self.Porb)
+
+    def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
+                        run_integrals=False,bolo=False,
+                        begins='periastron'):
+        """Blah blah blah."""
+        if begins not in self._accept_begins:
+            print('Draw_LightCurve error: strings for *begins* are')
+            print(self._accept_begins)
+            return
+        
+        lightcurve_flux = self.Observed_Flux(wave_band,a_microns,b_microns,
+                                             'obs',run_integrals,bolo,False)
+        
+        plt.figure(figsize=(7,7))
+        
+        i_start,i_end = self._light_phases(begins)
+        t_rel = self._relative_time(self.timeval[i_start:i_end],i_start)
+
+        plt.plot(t_rel,lightcurve_flux[i_start:i_end],c='k',lw=2,zorder=3)
+        plt.axhline(0,c='0.5',ls=':',zorder=1)
+        
+        # PICK UP HERE NEXT TIME, MAKE METHODS FOR THIS.
+        n_t = self._transecl_scaler(self.trans_time,i_start)
+        trans_trel = self._relative_time(self.trans_time+(n_t*self.Porb),i_start)
+        plt.axvline(trans_trel,c='b',ls='--',zorder=2)
+        n_e = self._transecl_scaler(self.ecl_time,i_start)
+        ecl_trel = self._relative_time(self.ecl_time+(n_e*self.Porb),i_start)
+        plt.axvline(ecl_trel,c='y',ls='--',zorder=2)
+        
+        nm = lambda b: 'Ascending Node' if b == 'ascending' else ('Descending Node' if b == 'descending' else b.capitalize())
+        plt.xlabel('Time from '+nm(begins)+' (orbits)')
+
+        plt.tight_layout()
+        self.fig_light = plt.gcf()
+        
+        plt.show()
+        return
 
 
     ### Temperature methods
