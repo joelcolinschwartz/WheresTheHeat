@@ -285,24 +285,31 @@ class parcel(object):
         
         return radius,orb_pos,tru_anom,alpha,frac_litup
     
-    def _find_trans_ecl(self):
+    def _find_conjunctions_nodes(self,kind):
         """Blah blah blah."""
         # Periastron happens at t = 0 because "tau" in KeplerEllipse defaults to zero.
-        # Get info for conjunctions--transit and eclipse--when orbit crosses y-z plane:
-        conjunc_times = np.array(self.kep_E.yzCrossingTime())
-        conjunc_pos,conjunc_tru_anom = self.kep_E.xyzPos(conjunc_times,getTA=True)
-        # Eclipse has +z (transit -z) so argmax is eclipse index (0 or 1).
-        i_ecl = np.argmax(conjunc_pos[:,2])
+        # Conjunctions--transit and eclipse--are when orbit crosses y-z plane.
+        # Nodes--ascending and descending--would be when orbit crosses x-y plane (no method).
+        # ---> BUT xzCrossingTime gives correct times, I've tested! (Because y-coor varies a tiny bit?)
+        if kind == 'c':  # Conjunctions
+            prop_times = np.array(self.kep_E.yzCrossingTime())
+        elif kind == 'n':  # Nodes
+            prop_times = np.array(self.kep_E.xzCrossingTime())
         
-        trans_time = conjunc_times[1-i_ecl]
-        trans_pos = conjunc_pos[1-i_ecl]
-        trans_tru_anom = conjunc_tru_anom[1-i_ecl]
-        ecl_time = conjunc_times[i_ecl]
-        ecl_pos = conjunc_pos[i_ecl]
-        ecl_tru_anom = conjunc_tru_anom[i_ecl]
+        prop_pos,prop_tru_anom = self.kep_E.xyzPos(prop_times,getTA=True)
+        # Eclipse has +z, transit -z; Ascending node has +x, descending -x
+        coor = lambda k: 2 if k == 'c' else 0
+        i_plus = np.argmax(prop_pos[:,coor(kind)])
         
-        return trans_time,trans_pos,trans_tru_anom,ecl_time,ecl_pos,ecl_tru_anom
-    
+        plus_time = prop_times[i_plus]
+        plus_pos = prop_pos[i_plus]
+        plus_tru_anom = prop_tru_anom[i_plus]
+        minus_time = prop_times[1-i_plus]
+        minus_pos = prop_pos[1-i_plus]
+        minus_tru_anom = prop_tru_anom[1-i_plus]
+        
+        return plus_time,plus_pos,plus_tru_anom,minus_time,minus_pos,minus_tru_anom
+
     
     def _setup_colatlong(self,NSIDE):
         """Blah blah blah."""
@@ -516,8 +523,10 @@ class parcel(object):
         
         (self.radius,self.orb_pos,
          self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
-        (self.trans_time,self.trans_pos,self.trans_tru_anom,
-         self.ecl_time,self.ecl_pos,self.ecl_tru_anom) = self._find_trans_ecl()
+        (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
+         self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
+        (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
+         self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
         
         ### Atmosphere coordinates
         (self.colat,self.longs,self.pixel_sq_rad,
@@ -608,11 +617,11 @@ class parcel(object):
         self._orbit_scatter(self.ecl_pos,'y','v',150,'Eclipse')
         self._orbit_lines(self.ecl_pos)
         
-        ascend_node,descend_node = self.kep_E.xyzNodes_LOSZ()
-        self._orbit_scatter(ascend_node,'g','<',150,'Ascending Node')
-        self._orbit_lines(ascend_node)
-        self._orbit_scatter(descend_node,'m','>',150,'Descending Node')
-        self._orbit_lines(descend_node)
+        # Need self.kep_E.xyzNodes_LOSZ() for anything??
+        self._orbit_scatter(self.ascend_pos,'g','<',150,'Ascending Node')
+        self._orbit_lines(self.ascend_pos)
+        self._orbit_scatter(self.descend_pos,'m','>',150,'Descending Node')
+        self._orbit_lines(self.descend_pos)
         
         periastron,apastron = self.kep_E.xyzPeriastron(),self.kep_E.xyzApastron()
         self._orbit_scatter(periastron,'r','D',100,'Periastron')
@@ -853,7 +862,7 @@ class parcel(object):
             i_end = fi_end + fin_orb_start
             
         i_start = i_end - int(self.stepsPerOrbit)
-        return i_start,i_end+1  # +1 to have initial phase repeated (keep??)
+        return i_start,i_end+1  # +1 to have initial phase repeated
     
     def _relative_time(self,t_act,i_start):
         """Blah blah blah."""
@@ -891,8 +900,8 @@ class parcel(object):
         ecl_trel = self._relative_time(self.ecl_time+(n_e*self.Porb),i_start)
         plt.axvline(ecl_trel,c='y',ls='--',zorder=2)
         
-        nm = lambda b: 'Ascending Node' if b == 'ascending' else ('Descending Node' if b == 'descending' else b.capitalize())
-        plt.xlabel('Time from '+nm(begins)+' (orbits)')
+        tail = lambda b: ' Node' if ('scending' in b) else ''
+        plt.xlabel('Time from '+b.capitalize()+tail(begins)+' (orbits)')
 
         plt.tight_layout()
         self.fig_light = plt.gcf()
