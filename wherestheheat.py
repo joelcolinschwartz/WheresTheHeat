@@ -52,6 +52,7 @@ import numpy as np
 import healpy as hp
 import matplotlib.pyplot as plt
 from scipy import integrate
+from scipy import interpolate
 from PyAstronomy import pyasl
 
 pi = np.pi
@@ -527,6 +528,7 @@ class parcel(object):
          self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
         (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
          self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
+        self.periast_time,self.apast_time = 0,0.5*self.Porb
         
         ### Atmosphere coordinates
         (self.colat,self.longs,self.pixel_sq_rad,
@@ -595,6 +597,10 @@ class parcel(object):
         dist = f*(0.5*au_sep)  # Distance from center of ellipse
         plt.xlim(au_cent[0]-dist,au_cent[0]+dist)
         plt.ylim(au_cent[2]-dist,au_cent[2]+dist)
+        
+        plt.title('Orbit of '+self.name)
+        plt.xlabel('Distance from star (AU)')
+        plt.ylabel('Distance from star (AU)')
         return
     
     def _orbit_lines(self,pos):
@@ -602,9 +608,12 @@ class parcel(object):
         plt.plot([0,au_pos[0]],[0,au_pos[2]],c='0.5',ls=':',zorder=0)
         return
     
-    def Draw_OrbitOverhead(self,show_legend=True):
+    def Draw_OrbitOverhead(self,show_legend=True,_combo=False):
         """Something something else."""
-        plt.figure(figsize=(7,7))
+        if _combo:
+            plt.subplot(121)
+        else:
+            plt.figure(figsize=(7,7))
         
         i_one = int(self.stepsPerOrbit+1)
         au_pos = self.orb_pos[:i_one]/self.astro_unit
@@ -632,11 +641,14 @@ class parcel(object):
             plt.legend(loc='best')
 
         plt.gca().set_aspect('equal')
-        plt.tight_layout()
-        self.fig_orbit = plt.gcf()
-
-        plt.show()
-        return
+        
+        if _combo:
+            return
+        else:
+            plt.tight_layout()
+            self.fig_orbit = plt.gcf()
+            plt.show()
+            return
     
     
     ### Differential Equation
@@ -841,40 +853,76 @@ class parcel(object):
 
     ### Draw Light Curve
     
-    def _light_phases(self,begins):
+    def _light_indices(self,begins):
         """Blah blah blah."""
+        # +1 so initial is not included twice.
+        fin_orb_start = int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
+        
         if begins == 'periastron':
-            i_end = int(round(self.stepsPerOrbit*self.numOrbs))
+            fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
         elif begins == 'apastron':
-            i_end = int(round(self.stepsPerOrbit*(self.numOrbs-0.5)))
-        else:
-            # +1 so periastron is not included twice.
-            fin_orb_start = int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
-            if begins == 'transit':
-                fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
-            elif begins == 'eclipse':
-                fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
-            elif begins == 'ascending':
-                fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
-            elif begins == 'descending':
-                fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
-            
-            i_end = fi_end + fin_orb_start
+            fi_end = np.argmin(np.cos(self.tru_anom[fin_orb_start:]))
+        elif begins == 'transit':
+            fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
+        elif begins == 'eclipse':
+            fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
+        elif begins == 'ascending':
+            fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
+        elif begins == 'descending':
+            fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
+
+        i_end = fi_end + fin_orb_start
             
         i_start = i_end - int(self.stepsPerOrbit)
-        return i_start,i_end+1  # +1 to have initial phase repeated
+        i_end += 1  # To have initial phase repeated
+        return i_start,i_end
     
-    def _relative_time(self,t_act,i_start):
+    def _relative_time(self,want_t,t_start):
         """Blah blah blah."""
-        return (t_act - self.timeval[i_start])/self.Porb
+        return (want_t - t_start)/self.Porb
     
-    def _transecl_scaler(self,t_act,i_start):
+    def _light_times(self,i_start,i_end):
         """Blah blah blah."""
-        return np.ceil((self.timeval[i_start]-t_act)/self.Porb)
+        t_act = self.timeval[i_start:i_end]
+        t_start,t_end = t_act[0],t_act[-1]
+        o_start = np.floor(t_start/self.Porb)  # Orbit light curve starts (0 based)
+        
+        t_rel = self._relative_time(t_act,t_start)
+        return t_act,t_start,t_end,o_start,t_rel
+    
+    def _prop_plotter(self,t_a,t_start,f_terp,color,mark,ize,y_mark,_combo):
+        """Blah blah blah."""
+        f_v = f_terp(t_a)
+        t_r = self._relative_time(t_a,t_start)
+        
+        plt.plot([t_r,t_r],[0,f_v],c=color,ls='--',zorder=2)
+        if _combo:
+            plt.scatter(t_r,y_mark,c=color,marker=mark,s=ize,edgecolors='k',zorder=2)
+        return
+    
+    def _prop_plotcheck(self,prop_time,o_start,t_start,t_end,f_terp,color,
+                        mark,ize,y_mark,_combo):
+        """Blah blah blah."""
+        t_a = prop_time+(o_start*self.Porb)
+        while t_a <= t_end:
+            if t_a >= t_start:
+                self._prop_plotter(t_a,t_start,f_terp,color,mark,ize,y_mark,_combo)
+            t_a += self.Porb
+        return
+    
+    def _light_window(self,lc_high,f_y,begins):
+        """Blah blah blah."""
+        plt.ylim(-f_y*lc_high,(1+f_y)*lc_high)
+        
+        plt.title('Light Curve of '+self.name)
+        tail = lambda b: ' Node' if ('scending' in b) else ''
+        plt.xlabel('Time from '+begins.capitalize()+tail(begins)+' (orbits)')
+        plt.ylabel('Flux ( planet / star )')
+        return
 
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
                         run_integrals=False,bolo=False,
-                        begins='periastron'):
+                        begins='periastron',_combo=False):
         """Blah blah blah."""
         if begins not in self._accept_begins:
             print('Draw_LightCurve error: strings for *begins* are')
@@ -883,29 +931,52 @@ class parcel(object):
         
         lightcurve_flux = self.Observed_Flux(wave_band,a_microns,b_microns,
                                              'obs',run_integrals,bolo,False)
+        if _combo:
+            plt.subplot(122)
+        else:
+            plt.figure(figsize=(7,7))
         
-        plt.figure(figsize=(7,7))
-        
-        i_start,i_end = self._light_phases(begins)
-        t_rel = self._relative_time(self.timeval[i_start:i_end],i_start)
+        i_start,i_end = self._light_indices(begins)
+        lcf_use = lightcurve_flux[i_start:i_end]
+        t_act,t_start,t_end,o_start,t_rel = self._light_times(i_start,i_end)
 
-        plt.plot(t_rel,lightcurve_flux[i_start:i_end],c='k',lw=2,zorder=3)
+        plt.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
         plt.axhline(0,c='0.5',ls=':',zorder=1)
         
-        # PICK UP HERE NEXT TIME, MAKE METHODS FOR THIS.
-        n_t = self._transecl_scaler(self.trans_time,i_start)
-        trans_trel = self._relative_time(self.trans_time+(n_t*self.Porb),i_start)
-        plt.axvline(trans_trel,c='b',ls='--',zorder=2)
-        n_e = self._transecl_scaler(self.ecl_time,i_start)
-        ecl_trel = self._relative_time(self.ecl_time+(n_e*self.Porb),i_start)
-        plt.axvline(ecl_trel,c='y',ls='--',zorder=2)
+        f_terp = interpolate.interp1d(t_act,lcf_use)
+        lc_high,f_y = np.amax(lcf_use),0.05  # y-axis scale factor
+        y_mark = -0.5*(f_y*lc_high)
         
-        tail = lambda b: ' Node' if ('scending' in b) else ''
-        plt.xlabel('Time from '+b.capitalize()+tail(begins)+' (orbits)')
-
-        plt.tight_layout()
-        self.fig_light = plt.gcf()
+        self._prop_plotcheck(self.trans_time,o_start,t_start,t_end,f_terp,'b','^',150,y_mark,_combo)
+        self._prop_plotcheck(self.ecl_time,o_start,t_start,t_end,f_terp,'y','v',150,y_mark,_combo)
+        if _combo:
+            self._prop_plotcheck(self.ascend_time,o_start,t_start,t_end,f_terp,'g','<',150,y_mark,_combo)
+            self._prop_plotcheck(self.descend_time,o_start,t_start,t_end,f_terp,'m','>',150,y_mark,_combo)
+            self._prop_plotcheck(self.periast_time,o_start,t_start,t_end,f_terp,'r','D',100,y_mark,_combo)
+            self._prop_plotcheck(self.apast_time,o_start,t_start,t_end,f_terp,'c','s',100,y_mark,_combo)
         
+        self._light_window(lc_high,f_y,begins)
+        
+        if _combo:
+            return
+        else:
+            plt.tight_layout()
+            self.fig_light = plt.gcf()
+            plt.show()
+            return
+    
+    
+    def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
+                      run_integrals=False,bolo=False,begins='periastron'):
+        """Blah blah blah."""
+        plt.figure(figsize=(14,7))
+        
+        self.Draw_OrbitOverhead(show_legend,_combo=True)
+        self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
+                             begins,_combo=True)
+        
+        plt.tight_layout(w_pad=2)
+        self.fig_combo = plt.gcf()
         plt.show()
         return
 
