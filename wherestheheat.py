@@ -48,6 +48,7 @@ It can be used for fitting for parameters tau_rad and wadv
 
 """
 
+import copy
 import numpy as np
 import healpy as hp
 import matplotlib.pyplot as plt
@@ -73,6 +74,10 @@ def _make_value_indexer(values):
 preplancked_waveN_ = len(preplancked_wavelengths_)
 # For general method that converts values to indices
 preplancked_temper_valueinds_ = _make_value_indexer(preplancked_temperatures_)
+
+# Modified inferno colormap
+inferno_mod_ = copy.copy(plt.cm.inferno)
+inferno_mod_.set_under('w')
 
 
 def RecircEfficiency_Convert(epsilon,kind='infinite'):
@@ -713,6 +718,53 @@ class parcel(object):
         print('Evolving complete')
         return
     
+    
+    ### Temperature Map
+    
+    def _final_orbit_index(self):
+        """Something something else."""
+        # +1 so initial phase is not included twice.
+        return int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
+    
+    def _orth_avoid_weird_warn(self,sop_deg):
+        """BLAH BLAH BLAH.
+        
+        Found that hp.graticule throws invalid value warnings with hp.orthview,
+        BUT it won't if the *rot* longitude in that hp.orthview has from 2 to
+        about 5-6 decimal places. Yes, it's super weird, and no, I don't know
+        why it's doing that. But in any case, this method adds a tiny number to
+        the sub-observer longitude so you get those decimal points you need.
+        
+        WAIT, THIS DOESN'T WORK WITH half_sky ON?!?! ARRRGGG!!!!!!!!!!!  >:-(
+        """
+        return sop_deg + 0.00001
+    
+    def Orth_Mapper(self,phase):
+        """Something something else."""
+        fin_orb_start = self._final_orbit_index()
+        
+        # Find closest position to phase
+        diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
+        i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
+        
+        sop_deg = np.degrees(self.SOP_long[i_want])
+        sop_deg = self._orth_avoid_weird_warn(sop_deg)
+        heat_map = self.Tvals_evolve[i_want,:]
+        
+        unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
+        this_title = self.name+' at {:.2f} orbital phase'.format(self.alpha[i_want])
+        
+        # PICK UP HERE NEXT TIME, TRYING TO FIGURE OUT THIS STUPID WARNING CRAP.
+        hp.visufunc.orthview(map=heat_map,rot=(sop_deg,0,0),flip='geo',
+                             unit=unit_of_T,min=0,max=1.0,cmap=inferno_mod_,
+                             half_sky=False,title=this_title,notext=False)
+        hp.graticule()
+
+#        plt.tight_layout()
+        self.fig_orth = plt.gcf()
+        plt.show()
+        return
+    
 
     ### Blackbody methods
     
@@ -855,8 +907,8 @@ class parcel(object):
     
     def _light_indices(self,begins):
         """Blah blah blah."""
-        # +1 so initial is not included twice.
-        fin_orb_start = int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
+        # _final_orbit_index has +1 so initial phase is not included twice.
+        fin_orb_start = self._final_orbit_index()
         
         if begins == 'periastron':
             fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
