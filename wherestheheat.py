@@ -49,6 +49,7 @@ It can be used for fitting for parameters tau_rad and wadv
 """
 
 import copy
+import warnings
 import numpy as np
 import healpy as hp
 import matplotlib.pyplot as plt
@@ -726,41 +727,45 @@ class parcel(object):
         # +1 so initial phase is not included twice.
         return int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
     
-    def _orth_avoid_weird_warn(self,sop_deg):
-        """BLAH BLAH BLAH.
-        
-        Found that hp.graticule throws invalid value warnings with hp.orthview,
-        BUT it won't if the *rot* longitude in that hp.orthview has from 2 to
-        about 5-6 decimal places. Yes, it's super weird, and no, I don't know
-        why it's doing that. But in any case, this method adds a tiny number to
-        the sub-observer longitude so you get those decimal points you need.
-        
-        WAIT, THIS DOESN'T WORK WITH half_sky ON?!?! ARRRGGG!!!!!!!!!!!  >:-(
-        """
-        return sop_deg + 0.00001
+    def _orth_bounds(self,force_color,heat_map):
+        """Something something else."""
+        if force_color:
+            # Just a little larger than the temperature bounds
+            low = 0.001*np.floor(1000*np.amin(heat_map))
+            high = 0.001*np.ceil(1000*np.amax(heat_map))
+        else:
+            low,high = 0,1.0
+        return low,high
     
-    def Orth_Mapper(self,phase):
+    def Orth_Mapper(self,phase,far_side=False,force_color=False):
         """Something something else."""
         fin_orb_start = self._final_orbit_index()
         
-        # Find closest position to phase
+        # Find closest position to phase.
         diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
         i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
         
+        # For rotating map to SOP.
         sop_deg = np.degrees(self.SOP_long[i_want])
-        sop_deg = self._orth_avoid_weird_warn(sop_deg)
         heat_map = self.Tvals_evolve[i_want,:]
+        low,high = self._orth_bounds(force_color,heat_map)
         
         unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
-        this_title = self.name+' at {:.2f} orbital phase'.format(self.alpha[i_want])
+        this_title = self.name+r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
         
-        # PICK UP HERE NEXT TIME, TRYING TO FIGURE OUT THIS STUPID WARNING CRAP.
         hp.visufunc.orthview(map=heat_map,rot=(sop_deg,0,0),flip='geo',
-                             unit=unit_of_T,min=0,max=1.0,cmap=inferno_mod_,
-                             half_sky=False,title=this_title,notext=False)
-        hp.graticule()
+                             unit=unit_of_T,min=low,max=high,cmap=inferno_mod_,
+                             half_sky=not(far_side),title=this_title,notext=False)
+        # Seems like graticule + orthview can throw out two invalid value warnings.
+        # Both pop up when *half_sky* is True, only one when it's False.
+        # Then again, if the numbers in *rot* have > 1 decimal place,
+        # those warnings can disappear! It's something weird in healpy's
+        # projector.py and projaxes.py. I'm suppressing both warnings for now.
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore',message='invalid value encountered in greater')
+            hp.visufunc.graticule(verbose=False)
 
-#        plt.tight_layout()
+        # Cannot use plt.tight_layout here as far as I know.
         self.fig_orth = plt.gcf()
         plt.show()
         return
