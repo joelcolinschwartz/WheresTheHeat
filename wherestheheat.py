@@ -746,6 +746,7 @@ class parcel(object):
         i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
         
         # For rotating map to SOP.
+        # PICK UP HERE, NEED TO CORRECT ROTATION BECAUSE PIXEL LONGIUDES ARE NOT STATIC (IT'S VERY EASY TO GET CONFUSED BY THIS!!!)
         sop_deg = np.degrees(self.SOP_long[i_want])
         heat_map = self.Tvals_evolve[i_want,:]
         low,high = self._orth_bounds(force_color,heat_map)
@@ -755,7 +756,7 @@ class parcel(object):
         
         hp.visufunc.orthview(map=heat_map,rot=(sop_deg,0,0),flip='geo',
                              unit=unit_of_T,min=low,max=high,cmap=inferno_mod_,
-                             half_sky=not(far_side),title=this_title,notext=False)
+                             half_sky=not(far_side),title=this_title)
         # Seems like graticule + orthview can throw out two invalid value warnings.
         # Both pop up when *half_sky* is True, only one when it's False.
         # Then again, if the numbers in *rot* have > 1 decimal place,
@@ -763,8 +764,15 @@ class parcel(object):
         # projector.py and projaxes.py. I'm suppressing both warnings for now.
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore',message='invalid value encountered in greater')
-            hp.visufunc.graticule(verbose=False)
+            hp.visufunc.graticule(local=True,verbose=True)
 
+        hp.visufunc.projscatter(pi/2,0,lonlat=False,c='g',marker='*',s=300,edgecolors='k',zorder=3)
+
+        if far_side:
+            ax = plt.gca().transAxes
+            plt.text(0.25,-0.025,'Observer Side',size='large',ha='right',va='center',transform=ax)
+            plt.text(0.75,-0.025,'Far Side',size='large',ha='left',va='center',transform=ax)
+        
         # Cannot use plt.tight_layout here as far as I know.
         self.fig_orth = plt.gcf()
         plt.show()
