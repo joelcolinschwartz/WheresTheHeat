@@ -330,9 +330,11 @@ class parcel(object):
         # Planet coordinates: longitude = 0 always points at star.
         # Longitude of gas parcels change throughout orbit. Colatitude stays the same.
         # So: new_longs = orig_longs +- Rotation effect (East/West) - Orbit effect (West)
-        new_longs = self.longs[np.newaxis,:] + (self.Wrot*self.timeval[:,np.newaxis]) - self.tru_anom[:,np.newaxis]
+        net_long_change = (self.Wrot*self.timeval) - self.tru_anom
+        new_longs = self.longs[np.newaxis,:] + net_long_change[:,np.newaxis]
         longs_evolve = new_longs % (2.0*pi)
-        return longs_evolve
+        net_zero_long = net_long_change % (2.0*pi)  # For rotating maps in Orth_Mapper
+        return longs_evolve,net_zero_long
     
     def _calc_vis_illum(self):
         """Blah blah blah."""
@@ -539,7 +541,7 @@ class parcel(object):
         ### Atmosphere coordinates
         (self.colat,self.longs,self.pixel_sq_rad,
          self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
-        self.longs_evolve = self._calc_longs()
+        self.longs_evolve,self._net_zero_long = self._calc_longs()
         
         (self.illumination,self.visibility,
          self.SSP_long,self.SOP_long) = self._calc_vis_illum()
@@ -745,16 +747,20 @@ class parcel(object):
         diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
         i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
         
-        # For rotating map to SOP.
-        # PICK UP HERE, NEED TO CORRECT ROTATION BECAUSE PIXEL LONGIUDES ARE NOT STATIC (IT'S VERY EASY TO GET CONFUSED BY THIS!!!)
+        # Align map for orthview because pixel (i.e. atmo) longitudes are not static.
+        # Undo implicit drift of the SSP (longitude 0), then rotate to the SOP.
+        # It's very easy to get confused by this!!
+        zero_deg = np.degrees(self._net_zero_long[i_want])
         sop_deg = np.degrees(self.SOP_long[i_want])
+        rel_sop = (-zero_deg + sop_deg) % 360
+        
         heat_map = self.Tvals_evolve[i_want,:]
         low,high = self._orth_bounds(force_color,heat_map)
         
         unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
         this_title = self.name+r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
         
-        hp.visufunc.orthview(map=heat_map,rot=(sop_deg,0,0),flip='geo',
+        hp.visufunc.orthview(map=heat_map,rot=(rel_sop,0,0),flip='geo',
                              unit=unit_of_T,min=low,max=high,cmap=inferno_mod_,
                              half_sky=not(far_side),title=this_title)
         # Seems like graticule + orthview can throw out two invalid value warnings.
@@ -765,6 +771,7 @@ class parcel(object):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore',message='invalid value encountered in greater')
             hp.visufunc.graticule(local=True,verbose=True)
+        # PICK UP HERE WITH MAKING YOUR OWN GRATICULE NEXT TIME.
 
         hp.visufunc.projscatter(pi/2,0,lonlat=False,c='g',marker='*',s=300,edgecolors='k',zorder=3)
 
