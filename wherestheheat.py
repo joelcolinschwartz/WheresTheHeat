@@ -80,6 +80,13 @@ preplancked_temper_valueinds_ = _make_value_indexer(preplancked_temperatures_)
 inferno_mod_ = copy.copy(plt.cm.inferno)
 inferno_mod_.set_under('w')
 
+# For custom graticule to draw on planet
+grat_xfactor_ = np.sin(np.radians([30,60,90,120,150]))
+grat_ylevels_ = np.cos(np.radians([30,60,90,120,150]))
+dummy_clats = np.linspace(0,pi,101)
+grat_sinclats_,grat_cosclats_ = np.sin(dummy_clats),np.cos(dummy_clats)
+del dummy_clats
+
 
 def RecircEfficiency_Convert(epsilon,kind='infinite'):
     "Go between 0-inf <--> 0-1 epsilon."
@@ -739,6 +746,44 @@ class parcel(object):
             low,high = 0,1.0
         return low,high
     
+    def _orth_grat_clats(self,xcen,xfac,ylev):
+        """Something something else."""
+        i_eq = int((xfac.size - 1)/2)
+        for xc in xcen:
+            for i in np.arange(xfac.size):
+                l_s = '-' if i == i_eq else ':'
+                plt.plot([xc-xfac[i],xc+xfac[i]],[ylev[i],ylev[i]],c='k',ls=l_s,lw=1,zorder=3)
+        return
+    
+    def _orth_gl_plot(self,xcen,ra,sincla,coscla,l_s,star):
+        """Something something else."""
+        xlon = xcen + sincla*np.sin(np.radians(ra))
+        plt.plot(xlon,coscla,c='k',ls=l_s,lw=1,zorder=3)
+        if star:
+            plt.scatter(xcen+np.sin(np.radians(ra)),0,c='y',marker='*',s=250,edgecolors='k',zorder=4)
+        return
+    
+    def _orth_grat_longs(self,far_side,rel_ssp,rel_angs,sincla,coscla):
+        """Something something else."""
+        xcen = -1 if far_side else 0
+        for ra in rel_angs:
+            l_s,star = ('-',True) if ra == rel_ssp else ('-',False) if ra == rel_ssp + 180 else (':',False)
+            if np.cos(np.radians(ra)) >= 0:
+                self._orth_gl_plot(xcen,ra,sincla,coscla,l_s,star)
+            if far_side and (np.cos(np.radians(ra)) <= 0):
+                self._orth_gl_plot(1,-1*ra,sincla,coscla,l_s,star)
+        return
+
+    def _orth_graticule(self,zero_to_sop,far_side):
+        """Something something else."""
+        xcen = [-1,1] if far_side else [0]
+        self._orth_grat_clats(xcen,grat_xfactor_,grat_ylevels_)
+        
+        rel_ssp = -zero_to_sop
+        rel_angs = np.linspace(rel_ssp,rel_ssp + 330,12)
+        self._orth_grat_longs(far_side,rel_ssp,rel_angs,grat_sinclats_,grat_cosclats_)
+        return
+    
     def Orth_Mapper(self,phase,far_side=False,force_color=False):
         """Something something else."""
         fin_orb_start = self._final_orbit_index()
@@ -750,9 +795,9 @@ class parcel(object):
         # Align map for orthview because pixel (i.e. atmo) longitudes are not static.
         # Undo implicit drift of the SSP (longitude 0), then rotate to the SOP.
         # It's very easy to get confused by this!!
-        zero_deg = np.degrees(self._net_zero_long[i_want])
-        sop_deg = np.degrees(self.SOP_long[i_want])
-        rel_sop = (-zero_deg + sop_deg) % 360
+        zero_long = np.degrees(self._net_zero_long[i_want])
+        zero_to_sop = np.degrees(self.SOP_long[i_want])
+        sop_rot = (-zero_long + zero_to_sop) % 360
         
         heat_map = self.Tvals_evolve[i_want,:]
         low,high = self._orth_bounds(force_color,heat_map)
@@ -760,25 +805,24 @@ class parcel(object):
         unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
         this_title = self.name+r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
         
-        hp.visufunc.orthview(map=heat_map,rot=(rel_sop,0,0),flip='geo',
+        hp.visufunc.orthview(map=heat_map,rot=(sop_rot,0,0),flip='geo',
                              unit=unit_of_T,min=low,max=high,cmap=inferno_mod_,
                              half_sky=not(far_side),title=this_title)
+        self._orth_graticule(zero_to_sop,far_side)
+        
+        ### Have my custom graticule now, but keeping this for posterity:
         # Seems like graticule + orthview can throw out two invalid value warnings.
         # Both pop up when *half_sky* is True, only one when it's False.
         # Then again, if the numbers in *rot* have > 1 decimal place,
         # those warnings can disappear! It's something weird in healpy's
         # projector.py and projaxes.py. I'm suppressing both warnings for now.
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore',message='invalid value encountered in greater')
-            hp.visufunc.graticule(local=True,verbose=True)
-        # PICK UP HERE WITH MAKING YOUR OWN GRATICULE NEXT TIME.
-
-        hp.visufunc.projscatter(pi/2,0,lonlat=False,c='g',marker='*',s=300,edgecolors='k',zorder=3)
+#        with warnings.catch_warnings():
+#            warnings.filterwarnings('ignore',message='invalid value encountered in greater')
+#            hp.visufunc.graticule(local=True,verbose=True)
 
         if far_side:
-            ax = plt.gca().transAxes
-            plt.text(0.25,-0.025,'Observer Side',size='large',ha='right',va='center',transform=ax)
-            plt.text(0.75,-0.025,'Far Side',size='large',ha='left',va='center',transform=ax)
+            plt.text(-1,-1.075,'Observer Side',size='large',ha='right',va='center')
+            plt.text(1,-1.075,'Far Side',size='large',ha='left',va='center')
         
         # Cannot use plt.tight_layout here as far as I know.
         self.fig_orth = plt.gcf()
