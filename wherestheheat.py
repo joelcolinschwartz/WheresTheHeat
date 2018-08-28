@@ -746,50 +746,61 @@ class parcel(object):
             low,high = 0,1.0
         return low,high
     
-    def _orth_grat_clats(self,xcen,xfac,ylev):
+    def _orth_grat_clats(self,xcen,xfac,ylev,mc,sc):
         """Something something else."""
         i_eq = int((xfac.size - 1)/2)
         for xc in xcen:
             for i in np.arange(xfac.size):
-                l_s = '-' if i == i_eq else ':'
-                plt.plot([xc-xfac[i],xc+xfac[i]],[ylev[i],ylev[i]],c='k',ls=l_s,lw=1,zorder=3)
+                l_c,l_s = (mc,'-') if i == i_eq else (sc,':')
+                plt.plot([xc-xfac[i],xc+xfac[i]],[ylev[i],ylev[i]],c=l_c,ls=l_s,lw=1,zorder=3)
         return
     
-    def _orth_gl_plot(self,xcen,ra,sincla,coscla,l_s,star):
+    def _orth_gl_plot(self,xcen,ra,sincla,coscla,l_c,l_s,star):
         """Something something else."""
         xlon = xcen + sincla*np.sin(np.radians(ra))
-        plt.plot(xlon,coscla,c='k',ls=l_s,lw=1,zorder=3)
+        plt.plot(xlon,coscla,c=l_c,ls=l_s,lw=1,zorder=3)
         if star:
-            plt.scatter(xcen+np.sin(np.radians(ra)),0,c='y',marker='*',s=250,edgecolors='k',zorder=4)
+            plt.scatter(xcen+np.sin(np.radians(ra)),0,c='y',marker='o',s=250,edgecolors='k',zorder=4)
         return
     
-    def _orth_grat_longs(self,far_side,rel_ssp,rel_angs,sincla,coscla):
+    def _orth_grat_longs(self,far_side,rel_ssp,rel_angs,sincla,coscla,mc,sc):
         """Something something else."""
         xcen = -1 if far_side else 0
         for ra in rel_angs:
-            l_s,star = ('-',True) if ra == rel_ssp else ('-',False) if ra == rel_ssp + 180 else (':',False)
+            if ra == rel_ssp:
+                l_c,l_s,star = mc,'-',True
+            elif ra == rel_ssp + 180:
+                l_c,l_s,star = mc,'-',False
+            else:
+                l_c,l_s,star = sc,':',False
+            
             if np.cos(np.radians(ra)) >= 0:
-                self._orth_gl_plot(xcen,ra,sincla,coscla,l_s,star)
+                self._orth_gl_plot(xcen,ra,sincla,coscla,l_c,l_s,star)
             if far_side and (np.cos(np.radians(ra)) <= 0):
-                self._orth_gl_plot(1,-1*ra,sincla,coscla,l_s,star)
+                self._orth_gl_plot(1,-1*ra,sincla,coscla,l_c,l_s,star)
         return
 
     def _orth_graticule(self,zero_to_sop,far_side):
         """Something something else."""
+        mc,sc = '0.75','0.1'  # Main/secondary colors
+        
         xcen = [-1,1] if far_side else [0]
-        self._orth_grat_clats(xcen,grat_xfactor_,grat_ylevels_)
+        self._orth_grat_clats(xcen,grat_xfactor_,grat_ylevels_,mc,sc)
         
         rel_ssp = -zero_to_sop
         rel_angs = np.linspace(rel_ssp,rel_ssp + 330,12)
-        self._orth_grat_longs(far_side,rel_ssp,rel_angs,grat_sinclats_,grat_cosclats_)
+        self._orth_grat_longs(far_side,rel_ssp,rel_angs,grat_sinclats_,grat_cosclats_,mc,sc)
         return
     
-    def Orth_Mapper(self,phase,far_side=False,force_color=False):
+    def Orth_Mapper(self,phase,relative_periast=False,far_side=False,force_color=False,_combo=False):
         """Something something else."""
         fin_orb_start = self._final_orbit_index()
         
-        # Find closest position to phase.
-        diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
+        # Find closest position to phase, given start position.
+        if relative_periast:
+            diff_phase = np.radians(phase) - self.tru_anom[fin_orb_start:]
+        else:
+            diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
         i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
         
         # Align map for orthview because pixel (i.e. atmo) longitudes are not static.
@@ -803,11 +814,22 @@ class parcel(object):
         low,high = self._orth_bounds(force_color,heat_map)
         
         unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
-        this_title = self.name+r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
+        if relative_periast:
+            descrip = r' $%.2f^{\circ}$ from periastron' % (np.degrees(self.tru_anom[i_want]) % 360)
+        else:
+            descrip = r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
+        this_title = self.name + descrip
+        
+        if _combo:
+            h_old,s_ub = False,122
+        else:
+            plt.figure(figsize=(13.75,8.75))  # Can custom size with hold=True in orthview.
+            h_old,s_ub = True,None
         
         hp.visufunc.orthview(map=heat_map,rot=(sop_rot,0,0),flip='geo',
                              unit=unit_of_T,min=low,max=high,cmap=inferno_mod_,
-                             half_sky=not(far_side),title=this_title)
+                             half_sky=not(far_side),title=this_title,
+                             xsize=1200,hold=h_old,sub=s_ub)
         self._orth_graticule(zero_to_sop,far_side)
         
         ### Have my custom graticule now, but keeping this for posterity:
@@ -825,7 +847,21 @@ class parcel(object):
             plt.text(1,-1.075,'Far Side',size='large',ha='left',va='center')
         
         # Cannot use plt.tight_layout here as far as I know.
-        self.fig_orth = plt.gcf()
+        if not _combo:
+            self.fig_orth = plt.gcf()
+            plt.show()
+        return
+    
+
+    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,far_side=False,force_color=False):
+        """Blah blah blah."""
+        plt.figure(figsize=(18,7))
+        
+        self.Draw_OrbitOverhead(show_legend,_combo=True)
+        self.Orth_Mapper(phase,relative_periast,far_side,force_color,_combo=True)
+            
+#        plt.tight_layout(w_pad=2)
+        self.fig_orborth = plt.gcf()
         plt.show()
         return
     
@@ -1092,7 +1128,7 @@ class parcel(object):
                              begins,_combo=True)
         
         plt.tight_layout(w_pad=2)
-        self.fig_combo = plt.gcf()
+        self.fig_orblc = plt.gcf()
         plt.show()
         return
 
