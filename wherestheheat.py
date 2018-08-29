@@ -599,71 +599,72 @@ class parcel(object):
     def _orbit_auscale(self,pos):
         return pos/self.astro_unit
     
-    def _orbit_scatter(self,pos,color,mark,ize,lab):
+    def _orbit_scatter(self,axorb,pos,color,mark,ize,lab):
         au_pos = self._orbit_auscale(pos)
-        plt.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
+        axorb.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
         return
     
-    def _orbit_window(self,au_pos):
+    def _orbit_window(self,axorb,au_pos):
         au_sep = max(np.ptp(au_pos[:,0]),np.ptp(au_pos[:,2]))
         au_cent = self.kep_E.xyzCenter()/self.astro_unit
         
         f = 1.1  # Padding factor
         dist = f*(0.5*au_sep)  # Distance from center of ellipse
-        plt.xlim(au_cent[0]-dist,au_cent[0]+dist)
-        plt.ylim(au_cent[2]-dist,au_cent[2]+dist)
+        axorb.set_xlim(au_cent[0]-dist,au_cent[0]+dist)
+        axorb.set_ylim(au_cent[2]-dist,au_cent[2]+dist)
         
-        plt.title('Orbit of '+self.name)
-        plt.xlabel('Distance from star (AU)')
-        plt.ylabel('Distance from star (AU)')
+        axorb.set_title('Orbit of '+self.name)
+        axorb.set_xlabel('Distance from star (AU)')
+        axorb.set_ylabel('Distance from star (AU)')
         return
     
-    def _orbit_lines(self,pos):
+    def _orbit_lines(self,axorb,pos):
         au_pos = self._orbit_auscale(pos)
-        plt.plot([0,au_pos[0]],[0,au_pos[2]],c='0.5',ls=':',zorder=0)
+        axorb.plot([0,au_pos[0]],[0,au_pos[2]],c='0.5',ls=':',zorder=0)
         return
     
-    def Draw_OrbitOverhead(self,show_legend=True,_combo=False):
+    def Draw_OrbitOverhead(self,show_legend=True,_combo=False,_axuse=None,_phxyz=None):
         """Something something else."""
         if _combo:
-            plt.subplot(121)
+            axorb = _axuse
         else:
-            plt.figure(figsize=(7,7))
+            fig_orbit,axorb = plt.subplots(figsize=(7,7))
         
         i_one = int(self.stepsPerOrbit+1)
         au_pos = self.orb_pos[:i_one]/self.astro_unit
-        plt.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
+        axorb.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
         
-        plt.scatter(0,0,c='y',marker='o',s=800,edgecolors='k',zorder=1)
+        axorb.scatter(0,0,c='y',marker='o',s=800,edgecolors='k',zorder=1)
         
-        self._orbit_scatter(self.trans_pos,'b','^',150,'Transit')
-        self._orbit_lines(self.trans_pos)
-        self._orbit_scatter(self.ecl_pos,'y','v',150,'Eclipse')
-        self._orbit_lines(self.ecl_pos)
+        self._orbit_scatter(axorb,self.trans_pos,'b','^',150,'Transit')
+        self._orbit_lines(axorb,self.trans_pos)
+        self._orbit_scatter(axorb,self.ecl_pos,'y','v',150,'Eclipse')
+        self._orbit_lines(axorb,self.ecl_pos)
         
         # Need self.kep_E.xyzNodes_LOSZ() for anything??
-        self._orbit_scatter(self.ascend_pos,'g','<',150,'Ascending Node')
-        self._orbit_lines(self.ascend_pos)
-        self._orbit_scatter(self.descend_pos,'m','>',150,'Descending Node')
-        self._orbit_lines(self.descend_pos)
+        self._orbit_scatter(axorb,self.ascend_pos,'g','<',150,'Ascending Node')
+        self._orbit_lines(axorb,self.ascend_pos)
+        self._orbit_scatter(axorb,self.descend_pos,'m','>',150,'Descending Node')
+        self._orbit_lines(axorb,self.descend_pos)
         
         periastron,apastron = self.kep_E.xyzPeriastron(),self.kep_E.xyzApastron()
-        self._orbit_scatter(periastron,'r','D',100,'Periastron')
-        self._orbit_scatter(apastron,'c','s',100,'Apastron')
+        self._orbit_scatter(axorb,periastron,'r','D',100,'Periastron')
+        self._orbit_scatter(axorb,apastron,'c','s',100,'Apastron')
         
-        self._orbit_window(au_pos)
+        if _combo and (_phxyz != None):
+            self._orbit_scatter(axorb,_phxyz,'w','o',150,'Planet Phase')
+        
+        self._orbit_window(axorb,au_pos)
         if show_legend:
-            plt.legend(loc='best')
+            axorb.legend(loc='best')
 
-        plt.gca().set_aspect('equal')
+        axorb.set_aspect('equal')
         
-        if _combo:
-            return
-        else:
-            plt.tight_layout()
-            self.fig_orbit = plt.gcf()
+        if not _combo:
+            fig_orbit.tight_layout()
+            self.fig_orbit = fig_orbit
             plt.show()
-            return
+        return
     
     
     ### Differential Equation
@@ -746,24 +747,24 @@ class parcel(object):
             low,high = 0,1.0
         return low,high
     
-    def _orth_grat_clats(self,xcen,xfac,ylev,mc,sc):
+    def _orth_grat_clats(self,axmap,xcen,xfac,ylev,mc,sc):
         """Something something else."""
         i_eq = int((xfac.size - 1)/2)
         for xc in xcen:
             for i in np.arange(xfac.size):
                 l_c,l_s = (mc,'-') if i == i_eq else (sc,':')
-                plt.plot([xc-xfac[i],xc+xfac[i]],[ylev[i],ylev[i]],c=l_c,ls=l_s,lw=1,zorder=3)
+                axmap.plot([xc-xfac[i],xc+xfac[i]],[ylev[i],ylev[i]],c=l_c,ls=l_s,lw=1,zorder=3)
         return
     
-    def _orth_gl_plot(self,xcen,ra,sincla,coscla,l_c,l_s,star):
+    def _orth_gl_plot(self,axmap,xcen,ra,sincla,coscla,l_c,l_s,star):
         """Something something else."""
         xlon = xcen + sincla*np.sin(np.radians(ra))
-        plt.plot(xlon,coscla,c=l_c,ls=l_s,lw=1,zorder=3)
+        axmap.plot(xlon,coscla,c=l_c,ls=l_s,lw=1,zorder=3)
         if star:
-            plt.scatter(xcen+np.sin(np.radians(ra)),0,c='y',marker='o',s=250,edgecolors='k',zorder=4)
+            axmap.scatter(xcen+np.sin(np.radians(ra)),0,c='y',marker='o',s=250,edgecolors='k',zorder=4)
         return
     
-    def _orth_grat_longs(self,far_side,rel_ssp,rel_angs,sincla,coscla,mc,sc):
+    def _orth_grat_longs(self,axmap,far_side,rel_ssp,rel_angs,sincla,coscla,mc,sc):
         """Something something else."""
         xcen = -1 if far_side else 0
         for ra in rel_angs:
@@ -775,24 +776,41 @@ class parcel(object):
                 l_c,l_s,star = sc,':',False
             
             if np.cos(np.radians(ra)) >= 0:
-                self._orth_gl_plot(xcen,ra,sincla,coscla,l_c,l_s,star)
+                self._orth_gl_plot(axmap,xcen,ra,sincla,coscla,l_c,l_s,star)
             if far_side and (np.cos(np.radians(ra)) <= 0):
-                self._orth_gl_plot(1,-1*ra,sincla,coscla,l_c,l_s,star)
+                self._orth_gl_plot(axmap,1,-1*ra,sincla,coscla,l_c,l_s,star)
         return
 
-    def _orth_graticule(self,zero_to_sop,far_side):
+    def _orth_graticule(self,axmap,zero_to_sop,far_side):
         """Something something else."""
         mc,sc = '0.75','0.1'  # Main/secondary colors
         
         xcen = [-1,1] if far_side else [0]
-        self._orth_grat_clats(xcen,grat_xfactor_,grat_ylevels_,mc,sc)
+        self._orth_grat_clats(axmap,xcen,grat_xfactor_,grat_ylevels_,mc,sc)
         
         rel_ssp = -zero_to_sop
         rel_angs = np.linspace(rel_ssp,rel_ssp + 330,12)
-        self._orth_grat_longs(far_side,rel_ssp,rel_angs,grat_sinclats_,grat_cosclats_,mc,sc)
+        self._orth_grat_longs(axmap,far_side,rel_ssp,rel_angs,grat_sinclats_,grat_cosclats_,mc,sc)
+        return
+
+    def _orth_cbar(self,axmap,new_map,low,high,far_side,_combo,_cax):
+        """Something something else."""
+        if _combo:
+            cb = plt.colorbar(new_map,cax=_cax,orientation='vertical',ticks=[low,high])
+            tx,ty,r = 1.75,0.5,'vertical'
+        else:
+            wid = lambda fs: 0.4 if fs else 0.6
+            cb = plt.colorbar(new_map,ax=axmap,orientation='horizontal',shrink=wid(far_side),
+                              aspect=25,ticks=[low,high],pad=0.05,fraction=0.1)
+            tx,ty,r = 0.5,-1.0,'horizontal'
+        
+        unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
+        cb.ax.text(tx,ty,unit_of_T,rotation=r,fontsize='large',ha='center',va='center',
+                   transform=cb.ax.transAxes)
         return
     
-    def Orth_Mapper(self,phase,relative_periast=False,far_side=False,force_color=False,_combo=False):
+    def Orth_Mapper(self,phase,relative_periast=False,force_color=False,far_side=False,
+                    _combo=False,_axuse=None,_cax=None):
         """Something something else."""
         fin_orb_start = self._final_orbit_index()
         
@@ -813,25 +831,22 @@ class parcel(object):
         heat_map = self.Tvals_evolve[i_want,:]
         low,high = self._orth_bounds(force_color,heat_map)
         
-        unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
-        if relative_periast:
-            descrip = r' $%.2f^{\circ}$ from periastron' % (np.degrees(self.tru_anom[i_want]) % 360)
-        else:
-            descrip = r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
-        this_title = self.name + descrip
+        # Get the picture from orthview to re-style
+        xpix,hsiz,xval = (2400,14,2) if far_side else (1200,7,1)
+        pic_map = hp.visufunc.orthview(fig=13,map=heat_map,rot=(sop_rot,0,0),flip='geo',
+                                       min=low,max=high,cmap=inferno_mod_,
+                                       half_sky=not(far_side),xsize=xpix,return_projected_map=True)
+        plt.close(13)
         
         if _combo:
-            h_old,s_ub = False,122
+            axmap = _axuse
         else:
-            plt.figure(figsize=(13.75,8.75))  # Can custom size with hold=True in orthview.
-            h_old,s_ub = True,None
-        
-        hp.visufunc.orthview(map=heat_map,rot=(sop_rot,0,0),flip='geo',
-                             unit=unit_of_T,min=low,max=high,cmap=inferno_mod_,
-                             half_sky=not(far_side),title=this_title,
-                             xsize=1200,hold=h_old,sub=s_ub)
-        self._orth_graticule(zero_to_sop,far_side)
-        
+            fig_orth,axmap = plt.subplots(figsize=(hsiz,7))
+
+        new_map = axmap.imshow(pic_map,origin='lower',extent=[-xval,xval,-1,1],
+                               vmin=low,vmax=high,cmap=inferno_mod_)
+        self._orth_graticule(axmap,zero_to_sop,far_side)
+
         ### Have my custom graticule now, but keeping this for posterity:
         # Seems like graticule + orthview can throw out two invalid value warnings.
         # Both pop up when *half_sky* is True, only one when it's False.
@@ -842,26 +857,51 @@ class parcel(object):
 #            warnings.filterwarnings('ignore',message='invalid value encountered in greater')
 #            hp.visufunc.graticule(local=True,verbose=True)
 
-        if far_side:
-            plt.text(-1,-1.075,'Observer Side',size='large',ha='right',va='center')
-            plt.text(1,-1.075,'Far Side',size='large',ha='left',va='center')
-        
-        # Cannot use plt.tight_layout here as far as I know.
-        if not _combo:
-            self.fig_orth = plt.gcf()
-            plt.show()
-        return
-    
+        if relative_periast:
+            descrip = r' $%.2f^{\circ}$ from periastron' % (np.degrees(self.tru_anom[i_want]) % 360)
+        else:
+            descrip = r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
+        axmap.set_title(self.name + descrip)
+        self._orth_cbar(axmap,new_map,low,high,far_side,_combo,_cax)
 
-    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,far_side=False,force_color=False):
+        if far_side:
+            axmap.text(-1,-1.06,'Observer Side',size='large',ha='right',va='center')
+            axmap.text(1,-1.06,'Far Side',size='large',ha='left',va='center')
+
+        axmap.axes.get_xaxis().set_visible(False)
+        axmap.axes.get_yaxis().set_visible(False)
+        axmap.axis('off')
+
+        if not _combo:
+            fig_orth.tight_layout()
+            self.fig_orth = fig_orth
+            plt.show()
+            return
+        else:
+            return self.orb_pos[i_want,:]
+
+
+    def _combo_faxmaker(self,sr,sc):
         """Blah blah blah."""
-        plt.figure(figsize=(18,7))
+        Nc,d = (2*sc)+1,sc/sr
+        f_com = plt.figure(figsize=(Nc/d,sr))
+        _axl = plt.subplot2grid((1,Nc),(0,0),rowspan=1,colspan=sc)
+        _axr = plt.subplot2grid((1,Nc),(0,sc),rowspan=1,colspan=sc)
+        _cax = plt.subplot2grid((1,Nc),(0,2*sc),rowspan=1,colspan=1)
+        return f_com,_axl,_axr,_cax
+
+    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_color=False):
+        """Blah blah blah."""
+        fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
         
-        self.Draw_OrbitOverhead(show_legend,_combo=True)
-        self.Orth_Mapper(phase,relative_periast,far_side,force_color,_combo=True)
+        # Return phase position before drawing orbit
+        _phxyz = self.Orth_Mapper(phase,relative_periast,force_color,far_side=False,
+                                  _combo=True,_axuse=_axmap,_cax=_cax)
+        
+        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb,_phxyz=_phxyz)
             
-#        plt.tight_layout(w_pad=2)
-        self.fig_orborth = plt.gcf()
+        fig_orborth.tight_layout(w_pad=1)
+        self.fig_orborth = fig_orborth
         plt.show()
         return
     
@@ -1042,39 +1082,39 @@ class parcel(object):
         t_rel = self._relative_time(t_act,t_start)
         return t_act,t_start,t_end,o_start,t_rel
     
-    def _prop_plotter(self,t_a,t_start,f_terp,color,mark,ize,y_mark,_combo):
+    def _prop_plotter(self,axlig,t_a,t_start,f_terp,color,mark,ize,y_mark,_combo):
         """Blah blah blah."""
         f_v = f_terp(t_a)
         t_r = self._relative_time(t_a,t_start)
         
-        plt.plot([t_r,t_r],[0,f_v],c=color,ls='--',zorder=2)
+        axlig.plot([t_r,t_r],[0,f_v],c=color,ls='--',zorder=2)
         if _combo:
-            plt.scatter(t_r,y_mark,c=color,marker=mark,s=ize,edgecolors='k',zorder=2)
+            axlig.scatter(t_r,y_mark,c=color,marker=mark,s=ize,edgecolors='k',zorder=2)
         return
     
-    def _prop_plotcheck(self,prop_time,o_start,t_start,t_end,f_terp,color,
+    def _prop_plotcheck(self,axlig,prop_time,o_start,t_start,t_end,f_terp,color,
                         mark,ize,y_mark,_combo):
         """Blah blah blah."""
         t_a = prop_time+(o_start*self.Porb)
         while t_a <= t_end:
             if t_a >= t_start:
-                self._prop_plotter(t_a,t_start,f_terp,color,mark,ize,y_mark,_combo)
+                self._prop_plotter(axlig,t_a,t_start,f_terp,color,mark,ize,y_mark,_combo)
             t_a += self.Porb
         return
     
-    def _light_window(self,lc_high,f_y,begins):
+    def _light_window(self,axlig,lc_high,f_y,begins):
         """Blah blah blah."""
-        plt.ylim(-f_y*lc_high,(1+f_y)*lc_high)
+        axlig.set_ylim(-f_y*lc_high,(1+f_y)*lc_high)
         
-        plt.title('Light Curve of '+self.name)
+        axlig.set_title('Light Curve of '+self.name)
         tail = lambda b: ' Node' if ('scending' in b) else ''
-        plt.xlabel('Time from '+begins.capitalize()+tail(begins)+' (orbits)')
-        plt.ylabel('Flux ( planet / star )')
+        axlig.set_xlabel('Time from '+begins.capitalize()+tail(begins)+' (orbits)')
+        axlig.set_ylabel('Flux ( planet / star )')
         return
 
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
                         run_integrals=False,bolo=False,
-                        begins='periastron',_combo=False):
+                        begins='periastron',_combo=False,_axuse=None):
         """Blah blah blah."""
         if begins not in self._accept_begins:
             print('Draw_LightCurve error: strings for *begins* are')
@@ -1084,51 +1124,52 @@ class parcel(object):
         lightcurve_flux = self.Observed_Flux(wave_band,a_microns,b_microns,
                                              'obs',run_integrals,bolo,False)
         if _combo:
-            plt.subplot(122)
+            axlig = _axuse
         else:
-            plt.figure(figsize=(7,7))
+            fig_light,axlig = plt.subplots(figsize=(7,7))
         
         i_start,i_end = self._light_indices(begins)
         lcf_use = lightcurve_flux[i_start:i_end]
         t_act,t_start,t_end,o_start,t_rel = self._light_times(i_start,i_end)
 
-        plt.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
-        plt.axhline(0,c='0.5',ls=':',zorder=1)
+        axlig.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
+        axlig.axhline(0,c='0.5',ls=':',zorder=1)
         
         f_terp = interpolate.interp1d(t_act,lcf_use)
         lc_high,f_y = np.amax(lcf_use),0.05  # y-axis scale factor
         y_mark = -0.5*(f_y*lc_high)
         
-        self._prop_plotcheck(self.trans_time,o_start,t_start,t_end,f_terp,'b','^',150,y_mark,_combo)
-        self._prop_plotcheck(self.ecl_time,o_start,t_start,t_end,f_terp,'y','v',150,y_mark,_combo)
+        self._prop_plotcheck(axlig,self.trans_time,o_start,t_start,t_end,f_terp,'b','^',150,y_mark,_combo)
+        self._prop_plotcheck(axlig,self.ecl_time,o_start,t_start,t_end,f_terp,'y','v',150,y_mark,_combo)
         if _combo:
-            self._prop_plotcheck(self.ascend_time,o_start,t_start,t_end,f_terp,'g','<',150,y_mark,_combo)
-            self._prop_plotcheck(self.descend_time,o_start,t_start,t_end,f_terp,'m','>',150,y_mark,_combo)
-            self._prop_plotcheck(self.periast_time,o_start,t_start,t_end,f_terp,'r','D',100,y_mark,_combo)
-            self._prop_plotcheck(self.apast_time,o_start,t_start,t_end,f_terp,'c','s',100,y_mark,_combo)
+            self._prop_plotcheck(axlig,self.ascend_time,o_start,t_start,t_end,f_terp,'g','<',150,y_mark,_combo)
+            self._prop_plotcheck(axlig,self.descend_time,o_start,t_start,t_end,f_terp,'m','>',150,y_mark,_combo)
+            self._prop_plotcheck(axlig,self.periast_time,o_start,t_start,t_end,f_terp,'r','D',100,y_mark,_combo)
+            self._prop_plotcheck(axlig,self.apast_time,o_start,t_start,t_end,f_terp,'c','s',100,y_mark,_combo)
         
-        self._light_window(lc_high,f_y,begins)
+        self._light_window(axlig,lc_high,f_y,begins)
         
-        if _combo:
-            return
-        else:
-            plt.tight_layout()
-            self.fig_light = plt.gcf()
+        if not _combo:
+            fig_light.tight_layout()
+            self.fig_light = fig_light
             plt.show()
-            return
+        return
     
     
     def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
                       run_integrals=False,bolo=False,begins='periastron'):
         """Blah blah blah."""
-        plt.figure(figsize=(14,7))
+        fig_orblc = plt.figure(figsize=(14,7))
         
-        self.Draw_OrbitOverhead(show_legend,_combo=True)
+        _axorb = plt.subplot(121)
+        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb)
+        
+        _axlig = plt.subplot(122)
         self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-                             begins,_combo=True)
+                             begins,_combo=True,_axuse=_axlig)
         
-        plt.tight_layout(w_pad=2)
-        self.fig_orblc = plt.gcf()
+        fig_orblc.tight_layout(w_pad=2)
+        self.fig_orblc = fig_orblc
         plt.show()
         return
 
