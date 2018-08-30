@@ -169,7 +169,7 @@ class parcel(object):
     speed_light = (2.99792458)*(10**8)  # in m/s
     
     _accept_motions = ('calcR','calcA','perR','perA','freqR','freqA')
-    _accept_begins = ('eclipse','transit','ascending','descending','periastron','apastron')
+    _accept_begins = ('transit','eclipse','ascending','descending','periastron','apastron')
     
     
     def _setup_scaled_quants(self,Rstar,Mstar,Rplanet,smaxis):
@@ -651,7 +651,7 @@ class parcel(object):
         self._orbit_scatter(axorb,periastron,'r','D',100,'Periastron')
         self._orbit_scatter(axorb,apastron,'c','s',100,'Apastron')
         
-        if _combo and (_phxyz != None):
+        if _combo and isinstance(_phxyz,np.ndarray):
             self._orbit_scatter(axorb,_phxyz,'w','o',150,'Planet Phase')
         
         self._orbit_window(axorb,au_pos)
@@ -810,16 +810,18 @@ class parcel(object):
         return
     
     def Orth_Mapper(self,phase,relative_periast=False,force_color=False,far_side=False,
-                    _combo=False,_axuse=None,_cax=None):
+                    _combo=False,_axuse=None,_cax=None,_i_phase=None):
         """Something something else."""
-        fin_orb_start = self._final_orbit_index()
-        
-        # Find closest position to phase, given start position.
-        if relative_periast:
-            diff_phase = np.radians(phase) - self.tru_anom[fin_orb_start:]
+        if _i_phase == None:
+            fin_orb_start = self._final_orbit_index()
+            # Find closest position to phase, given start position.
+            if relative_periast:
+                diff_phase = np.radians(phase) - self.tru_anom[fin_orb_start:]
+            else:
+                diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
+            i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
         else:
-            diff_phase = np.radians(phase - self.alpha[fin_orb_start:])
-        i_want = np.argmax(np.cos(diff_phase)) + fin_orb_start
+            i_want = _i_phase
         
         # Align map for orthview because pixel (i.e. atmo) longitudes are not static.
         # Undo implicit drift of the SSP (longitude 0), then rotate to the SOP.
@@ -876,18 +878,19 @@ class parcel(object):
             fig_orth.tight_layout()
             self.fig_orth = fig_orth
             plt.show()
-            return
-        else:
+        elif _i_phase == None:
             return self.orb_pos[i_want,:]
+        
+        return
 
 
     def _combo_faxmaker(self,sr,sc):
         """Blah blah blah."""
         Nc,d = (2*sc)+1,sc/sr
         f_com = plt.figure(figsize=(Nc/d,sr))
-        _axl = plt.subplot2grid((1,Nc),(0,0),rowspan=1,colspan=sc)
-        _axr = plt.subplot2grid((1,Nc),(0,sc),rowspan=1,colspan=sc)
-        _cax = plt.subplot2grid((1,Nc),(0,2*sc),rowspan=1,colspan=1)
+        _axl = plt.subplot2grid((1,Nc),(0,0),rowspan=1,colspan=sc,fig=f_com)
+        _axr = plt.subplot2grid((1,Nc),(0,sc),rowspan=1,colspan=sc,fig=f_com)
+        _cax = plt.subplot2grid((1,Nc),(0,2*sc),rowspan=1,colspan=1,fig=f_com)
         return f_com,_axl,_axr,_cax
 
     def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_color=False):
@@ -1113,12 +1116,13 @@ class parcel(object):
         return
 
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
-                        run_integrals=False,bolo=False,
-                        begins='periastron',_combo=False,_axuse=None):
+                        run_integrals=False,bolo=False,begins='periastron',
+                        _combo=False,_axuse=None,_phase=None,_relperi=None):
         """Blah blah blah."""
         if begins not in self._accept_begins:
             print('Draw_LightCurve error: strings for *begins* are')
             print(self._accept_begins)
+            plt.close()  # Remove WIP plot if combo method
             return
         
         lightcurve_flux = self.Observed_Flux(wave_band,a_microns,b_microns,
@@ -1131,6 +1135,16 @@ class parcel(object):
         i_start,i_end = self._light_indices(begins)
         lcf_use = lightcurve_flux[i_start:i_end]
         t_act,t_start,t_end,o_start,t_rel = self._light_times(i_start,i_end)
+        
+        # Get correct index/time for _phase in the combo plot.
+        if _phase != None:
+            # Find closest position to _phase, given light curve.
+            if _relperi:
+                _diff_phase = np.radians(_phase) - self.tru_anom[i_start:i_end]
+            else:
+                _diff_phase = np.radians(_phase - self.alpha[i_start:i_end])
+            _i_phase = np.argmax(np.cos(_diff_phase)) + i_start
+            _time_phase = self.timeval[_i_phase] % self.Porb
 
         axlig.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
         axlig.axhline(0,c='0.5',ls=':',zorder=1)
@@ -1139,6 +1153,9 @@ class parcel(object):
         lc_high,f_y = np.amax(lcf_use),0.05  # y-axis scale factor
         y_mark = -0.5*(f_y*lc_high)
         
+        ###
+        ### PICK BACK UP HERE, PROBABLY SET UP A STYLE DICT. FOR MARKERS AND MAKE REUSEABLE LEGENDING METHOD.
+        ###
         self._prop_plotcheck(axlig,self.trans_time,o_start,t_start,t_end,f_terp,'b','^',150,y_mark,_combo)
         self._prop_plotcheck(axlig,self.ecl_time,o_start,t_start,t_end,f_terp,'y','v',150,y_mark,_combo)
         if _combo:
@@ -1146,6 +1163,8 @@ class parcel(object):
             self._prop_plotcheck(axlig,self.descend_time,o_start,t_start,t_end,f_terp,'m','>',150,y_mark,_combo)
             self._prop_plotcheck(axlig,self.periast_time,o_start,t_start,t_end,f_terp,'r','D',100,y_mark,_combo)
             self._prop_plotcheck(axlig,self.apast_time,o_start,t_start,t_end,f_terp,'c','s',100,y_mark,_combo)
+            if _phase != None:
+                self._prop_plotcheck(axlig,_time_phase,o_start,t_start,t_end,f_terp,'w','o',150,y_mark,_combo)
         
         self._light_window(axlig,lc_high,f_y,begins)
         
@@ -1153,6 +1172,9 @@ class parcel(object):
             fig_light.tight_layout()
             self.fig_light = fig_light
             plt.show()
+        elif _phase != None:
+            return _i_phase
+
         return
     
     
@@ -1170,6 +1192,30 @@ class parcel(object):
         
         fig_orblc.tight_layout(w_pad=2)
         self.fig_orblc = fig_orblc
+        plt.show()
+        return
+    
+    
+    def Combo_LCOrth(self,phase,relative_periast=False,force_color=False,
+                     wave_band=False,a_microns=6.5,b_microns=9.5,
+                     run_integrals=False,bolo=False,begins='periastron'):
+        """Blah blah blah."""
+        fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
+        
+        # Return correct phase index to override calc in Orth_Mapper
+        _i_phase = self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
+                                        begins,_combo=True,_axuse=_axlig,
+                                        _phase=phase,_relperi=relative_periast)
+        
+        # Check if light curve quit with bad *begins*
+        if _i_phase == None:
+            return
+        
+        self.Orth_Mapper(phase,relative_periast,force_color,far_side=False,
+                         _combo=True,_axuse=_axmap,_cax=_cax,_i_phase=_i_phase)
+      
+        fig_lcorth.tight_layout(w_pad=1)
+        self.fig_lcorth = fig_lcorth
         plt.show()
         return
 
