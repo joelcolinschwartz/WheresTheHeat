@@ -87,6 +87,16 @@ dummy_clats = np.linspace(0,pi,101)
 grat_sinclats_,grat_cosclats_ = np.sin(dummy_clats),np.cos(dummy_clats)
 del dummy_clats
 
+# For styling plot markers
+orbloc_styles_ = {'transit':['b','^',150,'Transit'],
+                  'eclipse':['y','v',150,'Eclipse'],
+                  'ascend':['g','<',150,'Ascending Node'],
+                  'descend':['m','>',150,'Descending Node'],
+                  'periast':['r','D',100,'Periastron'],
+                  'apast':['c','s',100,'Apastron'],
+                  'phase':[[0.8,0.8,0.8],'o',150,'Planet Phase'],
+                  'star':['y','*',300,'Star']}
+
 
 def RecircEfficiency_Convert(epsilon,kind='infinite'):
     "Go between 0-inf <--> 0-1 epsilon."
@@ -169,7 +179,7 @@ class parcel(object):
     speed_light = (2.99792458)*(10**8)  # in m/s
     
     _accept_motions = ('calcR','calcA','perR','perA','freqR','freqA')
-    _accept_begins = ('transit','eclipse','ascending','descending','periastron','apastron')
+    _accept_begins = ('transit','eclipse','ascend','descend','periast','apast')
     
     
     def _setup_scaled_quants(self,Rstar,Mstar,Rplanet,smaxis):
@@ -599,8 +609,9 @@ class parcel(object):
     def _orbit_auscale(self,pos):
         return pos/self.astro_unit
     
-    def _orbit_scatter(self,axorb,pos,color,mark,ize,lab):
+    def _orbit_scatter(self,axorb,pos,ol_sty):
         au_pos = self._orbit_auscale(pos)
+        color,mark,ize,lab = ol_sty
         axorb.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
         return
     
@@ -634,25 +645,26 @@ class parcel(object):
         au_pos = self.orb_pos[:i_one]/self.astro_unit
         axorb.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
         
-        axorb.scatter(0,0,c='y',marker='o',s=800,edgecolors='k',zorder=1)
+        color,mark,ize = orbloc_styles_['star'][:-1]
+        axorb.scatter(0,0,c=color,marker=mark,s=4*ize,edgecolors='k',zorder=1)
         
-        self._orbit_scatter(axorb,self.trans_pos,'b','^',150,'Transit')
+        self._orbit_scatter(axorb,self.trans_pos,orbloc_styles_['transit'])
         self._orbit_lines(axorb,self.trans_pos)
-        self._orbit_scatter(axorb,self.ecl_pos,'y','v',150,'Eclipse')
+        self._orbit_scatter(axorb,self.ecl_pos,orbloc_styles_['eclipse'])
         self._orbit_lines(axorb,self.ecl_pos)
         
         # Need self.kep_E.xyzNodes_LOSZ() for anything??
-        self._orbit_scatter(axorb,self.ascend_pos,'g','<',150,'Ascending Node')
+        self._orbit_scatter(axorb,self.ascend_pos,orbloc_styles_['ascend'])
         self._orbit_lines(axorb,self.ascend_pos)
-        self._orbit_scatter(axorb,self.descend_pos,'m','>',150,'Descending Node')
+        self._orbit_scatter(axorb,self.descend_pos,orbloc_styles_['descend'])
         self._orbit_lines(axorb,self.descend_pos)
         
         periastron,apastron = self.kep_E.xyzPeriastron(),self.kep_E.xyzApastron()
-        self._orbit_scatter(axorb,periastron,'r','D',100,'Periastron')
-        self._orbit_scatter(axorb,apastron,'c','s',100,'Apastron')
+        self._orbit_scatter(axorb,periastron,orbloc_styles_['periast'])
+        self._orbit_scatter(axorb,apastron,orbloc_styles_['apast'])
         
         if _combo and isinstance(_phxyz,np.ndarray):
-            self._orbit_scatter(axorb,_phxyz,'w','o',150,'Planet Phase')
+            self._orbit_scatter(axorb,_phxyz,orbloc_styles_['phase'])
         
         self._orbit_window(axorb,au_pos)
         if show_legend:
@@ -737,9 +749,9 @@ class parcel(object):
         # +1 so initial phase is not included twice.
         return int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
     
-    def _orth_bounds(self,force_color,heat_map):
+    def _orth_bounds(self,force_contrast,heat_map):
         """Something something else."""
-        if force_color:
+        if force_contrast:
             # Just a little larger than the temperature bounds
             low = 0.001*np.floor(1000*np.amin(heat_map))
             high = 0.001*np.ceil(1000*np.amax(heat_map))
@@ -756,12 +768,13 @@ class parcel(object):
                 axmap.plot([xc-xfac[i],xc+xfac[i]],[ylev[i],ylev[i]],c=l_c,ls=l_s,lw=1,zorder=3)
         return
     
-    def _orth_gl_plot(self,axmap,xcen,ra,sincla,coscla,l_c,l_s,star):
+    def _orth_gl_plot(self,axmap,xcen,ra,sincla,coscla,l_c,l_s,star,ol_sty):
         """Something something else."""
         xlon = xcen + sincla*np.sin(np.radians(ra))
         axmap.plot(xlon,coscla,c=l_c,ls=l_s,lw=1,zorder=3)
         if star:
-            axmap.scatter(xcen+np.sin(np.radians(ra)),0,c='y',marker='o',s=250,edgecolors='k',zorder=4)
+            color,mark,ize = ol_sty[:-1]
+            axmap.scatter(xcen+np.sin(np.radians(ra)),0,c=color,marker=mark,s=ize,edgecolors='k',zorder=4)
         return
     
     def _orth_grat_longs(self,axmap,far_side,rel_ssp,rel_angs,sincla,coscla,mc,sc):
@@ -776,9 +789,9 @@ class parcel(object):
                 l_c,l_s,star = sc,':',False
             
             if np.cos(np.radians(ra)) >= 0:
-                self._orth_gl_plot(axmap,xcen,ra,sincla,coscla,l_c,l_s,star)
+                self._orth_gl_plot(axmap,xcen,ra,sincla,coscla,l_c,l_s,star,orbloc_styles_['star'])
             if far_side and (np.cos(np.radians(ra)) <= 0):
-                self._orth_gl_plot(axmap,1,-1*ra,sincla,coscla,l_c,l_s,star)
+                self._orth_gl_plot(axmap,1,-1*ra,sincla,coscla,l_c,l_s,star,orbloc_styles_['star'])
         return
 
     def _orth_graticule(self,axmap,zero_to_sop,far_side):
@@ -809,7 +822,7 @@ class parcel(object):
                    transform=cb.ax.transAxes)
         return
     
-    def Orth_Mapper(self,phase,relative_periast=False,force_color=False,far_side=False,
+    def Orth_Mapper(self,phase,relative_periast=False,force_contrast=False,far_side=False,
                     _combo=False,_axuse=None,_cax=None,_i_phase=None):
         """Something something else."""
         if _i_phase == None:
@@ -831,9 +844,9 @@ class parcel(object):
         sop_rot = (-zero_long + zero_to_sop) % 360
         
         heat_map = self.Tvals_evolve[i_want,:]
-        low,high = self._orth_bounds(force_color,heat_map)
+        low,high = self._orth_bounds(force_contrast,heat_map)
         
-        # Get the picture from orthview to re-style
+        # Get the picture from orthview to re-style; lucky 13!!
         xpix,hsiz,xval = (2400,14,2) if far_side else (1200,7,1)
         pic_map = hp.visufunc.orthview(fig=13,map=heat_map,rot=(sop_rot,0,0),flip='geo',
                                        min=low,max=high,cmap=inferno_mod_,
@@ -893,12 +906,12 @@ class parcel(object):
         _cax = plt.subplot2grid((1,Nc),(0,2*sc),rowspan=1,colspan=1,fig=f_com)
         return f_com,_axl,_axr,_cax
 
-    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_color=False):
+    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_contrast=False):
         """Blah blah blah."""
         fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
         
         # Return phase position before drawing orbit
-        _phxyz = self.Orth_Mapper(phase,relative_periast,force_color,far_side=False,
+        _phxyz = self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
                                   _combo=True,_axuse=_axmap,_cax=_cax)
         
         self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb,_phxyz=_phxyz)
@@ -1053,17 +1066,17 @@ class parcel(object):
         # _final_orbit_index has +1 so initial phase is not included twice.
         fin_orb_start = self._final_orbit_index()
         
-        if begins == 'periastron':
+        if begins == 'periast':
             fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
-        elif begins == 'apastron':
+        elif begins == 'apast':
             fi_end = np.argmin(np.cos(self.tru_anom[fin_orb_start:]))
         elif begins == 'transit':
             fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
         elif begins == 'eclipse':
             fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
-        elif begins == 'ascending':
+        elif begins == 'ascend':
             fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
-        elif begins == 'descending':
+        elif begins == 'descend':
             fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
 
         i_end = fi_end + fin_orb_start
@@ -1085,38 +1098,42 @@ class parcel(object):
         t_rel = self._relative_time(t_act,t_start)
         return t_act,t_start,t_end,o_start,t_rel
     
-    def _prop_plotter(self,axlig,t_a,t_start,f_terp,color,mark,ize,y_mark,_combo):
+    def _prop_plotter(self,axlig,t_a,t_start,f_terp,ol_sty,y_mark,_combo,_inc):
         """Blah blah blah."""
         f_v = f_terp(t_a)
         t_r = self._relative_time(t_a,t_start)
         
+        color = ol_sty[0]
         axlig.plot([t_r,t_r],[0,f_v],c=color,ls='--',zorder=2)
         if _combo:
-            axlig.scatter(t_r,y_mark,c=color,marker=mark,s=ize,edgecolors='k',zorder=2)
+            mark,ize = ol_sty[1:3]
+            lab = ol_sty[-1] if _inc else '_null'
+            axlig.scatter(t_r,y_mark,c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
         return
     
-    def _prop_plotcheck(self,axlig,prop_time,o_start,t_start,t_end,f_terp,color,
-                        mark,ize,y_mark,_combo):
+    def _prop_plotcheck(self,axlig,prop_time,o_start,t_start,t_end,f_terp,
+                        ol_sty,y_mark,_combo):
         """Blah blah blah."""
         t_a = prop_time+(o_start*self.Porb)
+        _inc = True  # For putting marker in legend
         while t_a <= t_end:
             if t_a >= t_start:
-                self._prop_plotter(axlig,t_a,t_start,f_terp,color,mark,ize,y_mark,_combo)
+                self._prop_plotter(axlig,t_a,t_start,f_terp,ol_sty,y_mark,_combo,_inc)
+                _inc = False  # No double-listed markers!
             t_a += self.Porb
         return
     
-    def _light_window(self,axlig,lc_high,f_y,begins):
+    def _light_window(self,axlig,lc_high,f_y,ol_sty):
         """Blah blah blah."""
         axlig.set_ylim(-f_y*lc_high,(1+f_y)*lc_high)
         
         axlig.set_title('Light Curve of '+self.name)
-        tail = lambda b: ' Node' if ('scending' in b) else ''
-        axlig.set_xlabel('Time from '+begins.capitalize()+tail(begins)+' (orbits)')
+        axlig.set_xlabel('Time from '+ol_sty[-1]+' (orbits)')
         axlig.set_ylabel('Flux ( planet / star )')
         return
 
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
-                        run_integrals=False,bolo=False,begins='periastron',
+                        run_integrals=False,bolo=False,begins='periast',
                         _combo=False,_axuse=None,_phase=None,_relperi=None):
         """Blah blah blah."""
         if begins not in self._accept_begins:
@@ -1153,20 +1170,24 @@ class parcel(object):
         lc_high,f_y = np.amax(lcf_use),0.05  # y-axis scale factor
         y_mark = -0.5*(f_y*lc_high)
         
-        ###
-        ### PICK BACK UP HERE, PROBABLY SET UP A STYLE DICT. FOR MARKERS AND MAKE REUSEABLE LEGENDING METHOD.
-        ###
-        self._prop_plotcheck(axlig,self.trans_time,o_start,t_start,t_end,f_terp,'b','^',150,y_mark,_combo)
-        self._prop_plotcheck(axlig,self.ecl_time,o_start,t_start,t_end,f_terp,'y','v',150,y_mark,_combo)
+        self._prop_plotcheck(axlig,self.trans_time,o_start,t_start,t_end,f_terp,
+                             orbloc_styles_['transit'],y_mark,_combo)
+        self._prop_plotcheck(axlig,self.ecl_time,o_start,t_start,t_end,f_terp,
+                             orbloc_styles_['eclipse'],y_mark,_combo)
         if _combo:
-            self._prop_plotcheck(axlig,self.ascend_time,o_start,t_start,t_end,f_terp,'g','<',150,y_mark,_combo)
-            self._prop_plotcheck(axlig,self.descend_time,o_start,t_start,t_end,f_terp,'m','>',150,y_mark,_combo)
-            self._prop_plotcheck(axlig,self.periast_time,o_start,t_start,t_end,f_terp,'r','D',100,y_mark,_combo)
-            self._prop_plotcheck(axlig,self.apast_time,o_start,t_start,t_end,f_terp,'c','s',100,y_mark,_combo)
+            self._prop_plotcheck(axlig,self.ascend_time,o_start,t_start,t_end,f_terp,
+                                 orbloc_styles_['ascend'],y_mark,_combo)
+            self._prop_plotcheck(axlig,self.descend_time,o_start,t_start,t_end,f_terp,
+                                 orbloc_styles_['descend'],y_mark,_combo)
+            self._prop_plotcheck(axlig,self.periast_time,o_start,t_start,t_end,f_terp,
+                                 orbloc_styles_['periast'],y_mark,_combo)
+            self._prop_plotcheck(axlig,self.apast_time,o_start,t_start,t_end,f_terp,
+                                 orbloc_styles_['apast'],y_mark,_combo)
             if _phase != None:
-                self._prop_plotcheck(axlig,_time_phase,o_start,t_start,t_end,f_terp,'w','o',150,y_mark,_combo)
+                self._prop_plotcheck(axlig,_time_phase,o_start,t_start,t_end,f_terp,
+                                     orbloc_styles_['phase'],y_mark,_combo)
         
-        self._light_window(axlig,lc_high,f_y,begins)
+        self._light_window(axlig,lc_high,f_y,orbloc_styles_[begins])
         
         if not _combo:
             fig_light.tight_layout()
@@ -1179,7 +1200,7 @@ class parcel(object):
     
     
     def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
-                      run_integrals=False,bolo=False,begins='periastron'):
+                      run_integrals=False,bolo=False,begins='periast'):
         """Blah blah blah."""
         fig_orblc = plt.figure(figsize=(14,7))
         
@@ -1196,9 +1217,9 @@ class parcel(object):
         return
     
     
-    def Combo_LCOrth(self,phase,relative_periast=False,force_color=False,
+    def Combo_LCOrth(self,phase,relative_periast=False,force_contrast=False,
                      wave_band=False,a_microns=6.5,b_microns=9.5,
-                     run_integrals=False,bolo=False,begins='periastron'):
+                     run_integrals=False,bolo=False,begins='periast',show_legend=True):
         """Blah blah blah."""
         fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
         
@@ -1211,8 +1232,11 @@ class parcel(object):
         if _i_phase == None:
             return
         
-        self.Orth_Mapper(phase,relative_periast,force_color,far_side=False,
+        self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
                          _combo=True,_axuse=_axmap,_cax=_cax,_i_phase=_i_phase)
+                         
+        if show_legend:
+            _axlig.legend(loc='best')
       
         fig_lcorth.tight_layout(w_pad=1)
         self.fig_lcorth = fig_lcorth
