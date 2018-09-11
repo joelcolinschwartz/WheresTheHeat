@@ -95,7 +95,7 @@ orbloc_styles_ = {'transit':['b','^',150,'Transit'],
                   'periast':['r','D',100,'Periastron'],
                   'apast':['c','s',100,'Apastron'],
                   'phase':[[0.8,0.8,0.8],'o',150,'Planet Phase'],
-                  'star':['y','*',300,'Star']}
+                  'star':['y',['o','--'],300,'Star']}
 
 
 def RecircEfficiency_Convert(epsilon,kind='infinite'):
@@ -645,8 +645,10 @@ class parcel(object):
         au_pos = self.orb_pos[:i_one]/self.astro_unit
         axorb.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
         
-        color,mark,ize = orbloc_styles_['star'][:-1]
-        axorb.scatter(0,0,c=color,marker=mark,s=4*ize,edgecolors='k',zorder=1)
+        # Star has marker and line styles
+        color,m_ls,ize = orbloc_styles_['star'][:-1]
+        mark,ls = m_ls
+        axorb.scatter(0,0,c=color,marker=mark,s=4*ize,edgecolors='k',linestyle=ls,zorder=1)
         
         self._orbit_scatter(axorb,self.trans_pos,orbloc_styles_['transit'])
         self._orbit_lines(axorb,self.trans_pos)
@@ -773,8 +775,10 @@ class parcel(object):
         xlon = xcen + sincla*np.sin(np.radians(ra))
         axmap.plot(xlon,coscla,c=l_c,ls=l_s,lw=1,zorder=3)
         if star:
-            color,mark,ize = ol_sty[:-1]
-            axmap.scatter(xcen+np.sin(np.radians(ra)),0,c=color,marker=mark,s=ize,edgecolors='k',zorder=4)
+            color,m_ls,ize = ol_sty[:-1]
+            mark,ls = m_ls
+            axmap.scatter(xcen+np.sin(np.radians(ra)),0,c=color,marker=mark,s=ize,
+                          edgecolors='k',linestyle=ls,zorder=4)
         return
     
     def _orth_grat_longs(self,axmap,far_side,rel_ssp,rel_angs,sincla,coscla,mc,sc):
@@ -1246,32 +1250,33 @@ class parcel(object):
 
     ### Temperature methods
 
-    def Calc_MaxDuskDawn_Temps(self):
+    def Calc_MaxEastWest_Temps(self):
         """Something.
             
         Something else.
         
         """
         start_time = int(self.stepsPerOrbit*(self.numOrbs-1))
+        
+        alphas = self.alpha[start_time:]
         Tevo_eq = self.Tvals_evolve[start_time:,self._on_equator]
         long_eq = self.longs_evolve[start_time:,self._on_equator]
         # To pair timestep with values
         i_time = np.arange(Tevo_eq.shape[0])
         
         i_max = np.argmax(Tevo_eq,axis=1)
-        Ttilda_max = Tevo_eq[i_time,i_max]
-        angles_max = long_eq[i_time,i_max]
+        Tnorm_max = Tevo_eq[i_time,i_max]
+        shifts_max = long_eq[i_time,i_max]
         
-        # Prograde dusk at long = pi/2; doesn't matter that angles wrap.
-        i_dusk = np.argmin(np.absolute(long_eq - (pi/2)),axis=1)
-        Ttilda_dusk = Tevo_eq[i_time,i_dusk]
+        # East at long = pi/2 (prograde dusk); doesn't matter that angles wrap.
+        i_east = np.argmin(np.absolute(long_eq - (pi/2)),axis=1)
+        Tnorm_east = Tevo_eq[i_time,i_east]
         
-        # Prograde dawn at long = 3*pi/2; again doesn't matter that angles wrap.
-        i_dawn = np.argmin(np.absolute(long_eq - (3*pi/2)),axis=1)
-        Ttilda_dawn = Tevo_eq[i_time,i_dawn]
+        # West at long = 3*pi/2 (prograde dawn); ditto.
+        i_west = np.argmin(np.absolute(long_eq - (3*pi/2)),axis=1)
+        Tnorm_west = Tevo_eq[i_time,i_west]
         
-        # DO YOU WANT TO GET SINGLE VALUES PER ORBIT INSTEAD??
-        return angles_max,Ttilda_max,Ttilda_dusk,Ttilda_dawn
+        return Tnorm_max,Tnorm_east,Tnorm_west,alphas,shifts_max
 
     
     def _max_temper(self,eps):
@@ -1307,22 +1312,26 @@ class parcel(object):
         return val
     
     
-    def Approx_MaxDuskDawn_Temps(self,epsilon="self"):
+    def Approx_MaxEastWest_Temps(self,epsilon="self"):
         """Blah blah blah
         
         Some bozo.
         
         """
-        # Want positive eps for sub-functions
         if isinstance(epsilon,(float,int)):
-            eps = abs(epsilon)
+            eps = epsilon
         else:
-            eps = abs(self.recirc_effic)
+            eps = self.recirc_effic
         
-        # NEGATIVE EPSILON: DUSK --> DAWN AND VICE VERSA; DO SOMETHING??
-        # Each gives you single T values.
-        Ttilda_max = self._max_temper(eps)
-        Ttilda_dusk = self._dusk_temper(eps)
-        Ttilda_dawn = self._dawn_temper(eps)
+        if eps >= 0:
+            # Prograde
+            Tnorm_max = self._max_temper(eps)
+            Tnorm_east = self._dusk_temper(eps)
+            Tnorm_west = self._dawn_temper(eps)
+        else:
+            # Retrograde --> swap dusk/dawn
+            Tnorm_max = self._max_temper(abs(eps))
+            Tnorm_west = self._dusk_temper(abs(eps))
+            Tnorm_east = self._dawn_temper(abs(eps))
         
-        return Ttilda_max,Ttilda_dusk,Ttilda_dawn
+        return Tnorm_max,Tnorm_east,Tnorm_west
