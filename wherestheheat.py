@@ -368,24 +368,6 @@ class parcel(object):
         visibility = 0.5*(np.cos(longs_minus_SOP) + np.absolute(np.cos(longs_minus_SOP)))*np.sin(self.colat)
         
         return illumination,visibility,SSP_long,SOP_long
-    
-
-    def _initial_temperature_array(self):
-        """Something something else."""
-        Tvals_evolve = np.zeros(self.longs_evolve.shape)
-        
-        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
-        the_high_case = (np.sin(self.colat)/pi)**0.25
-        if np.isnan(self.recirc_effic):
-            pos_eps = abs(self.adv_freq_peri*self.radiate_time)
-        else:
-            pos_eps = abs(self.recirc_effic)  # Negative recirc_effic's don't work in "the_scaler".
-        the_scaler = (pos_eps**1.652)/(1.828 + pos_eps**1.652)  # Estimated curly epsilon, Schwartz et al. 2017
-        Tvals = the_scaler*the_high_case + (1.0-the_scaler)*the_low_case  # E.B. model parameterization
-        Tvals[Tvals<0.01] = 0.01
-        
-        Tvals_evolve[0,:] += Tvals
-        return Tvals_evolve
 
     
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
@@ -563,8 +545,8 @@ class parcel(object):
         (self.illumination,self.visibility,
          self.SSP_long,self.SOP_long) = self._calc_vis_illum()
         
-        ### Temperatures
-        self.Tvals_evolve = self._initial_temperature_array()
+        ### Null temperatures to start
+        self.Tvals_evolve = None
         return
         
 
@@ -696,6 +678,22 @@ class parcel(object):
         Tvals[Tvals<0.01] = 0.01
         return Tvals
     
+    ## ADD WAY TO ADJUST NUMBER OF ORBITS HERE? ##
+    def _update_params_before_evolve(self):
+        """Something something else."""
+        self.timeval += self.Porb*self.numOrbs
+        t_start,t_end = self.timeval[[0,-1]]/self.Porb
+        
+        (self.radius,self.orb_pos,
+         self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+
+        self.longs_evolve,self._net_zero_long = self._calc_longs()
+
+        (self.illumination,self.visibility,
+         self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+
+        return t_start,t_end
+    
     
     def _diff_eq_tempvals(self,start_Tvals):
         """Something something else."""
@@ -731,12 +729,16 @@ class parcel(object):
         
         return Tvals_evolve
     
+    ## ADD WAY TO AUTOMATE EVOLVING UNTIL SOME EQUILIBRIUM IS REACHED? ##
     def Evolve_AtmoTemps(self):
         """Something something else."""
-        if True:
+        if np.all(self.Tvals_evolve == None):
             start_Tvals = self._initial_temperatures()
+            print('Heating {:}, to orbit {:.2f} ... '.format(self.name,self.numOrbs),end='')
         else:
-            pass
+            t_start,t_end = self._update_params_before_evolve()
+            print('Re-heating {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,t_start,t_end),end='')
+            start_Tvals = self.Tvals_evolve[-1,:]
     
         self.Tvals_evolve = self._diff_eq_tempvals(start_Tvals)
         
