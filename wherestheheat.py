@@ -181,6 +181,7 @@ class parcel(object):
     _accept_motions = ('calcR','calcA','perR','perA','freqR','freqA')
     _accept_begins = ('transit','eclipse','ascend','descend','periast','apast')
     
+    
     def _check_single_updater(self,thing):
         """Blah blah blah."""
         return thing != '_no'
@@ -290,6 +291,16 @@ class parcel(object):
         timeval = np.linspace(0,t_end,num=N+1)
         return timeval
     
+    def _reset_rot_times(self,_makenew):
+        """Blah blah blah."""
+        if _makenew:
+            spin_history,timeval_rot = 0,self.timeval
+        else:
+            t_i = -1 if self._has_T_evolved else 0
+            spin_history = self._net_zero_long[t_i]
+            timeval_rot = self.timeval - self.timeval[0]
+        return spin_history,timeval_rot
+    
     
     def _setup_the_orbit(self):
         """Ha ha ha."""
@@ -299,6 +310,22 @@ class parcel(object):
         # Argument of periastron measured from ascending node at 1st quarter phase (alpha = 90 deg).
         # >>> SEE KEY NOTE IN _modify_arg_peri METHOD!!!
         return pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
+    
+    def _match_phase_new_orbit(self):
+        """Stuff and things."""
+        # Get old orbital phase
+        p_i = -1 if self._has_T_evolved else 0
+        the_phase = self.alpha[p_i]
+        
+        # Get new orbital phases
+        t_demo = np.linspace(0,self.Porb,self.stepsPerOrbit+1)
+        _ig,tru_anom = self.kep_E.xyzPos(t_demo,getTA=True)
+        alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
+        
+        # Get new time of matched phase
+        tp_i = np.argmax(np.cos(np.radians(alpha - the_phase)))
+        t_match = t_demo[tp_i]
+        return self.timeval - self.timeval[0] + t_match
     
     def _calc_orbit_props(self):
         """Stuff and things."""
@@ -351,7 +378,7 @@ class parcel(object):
         # Planet coordinates: longitude = 0 always points at star.
         # Longitude of gas parcels change throughout orbit. Colatitude stays the same.
         # So: new_longs = orig_longs +- Rotation effect (East/West) - Orbit effect (West)
-        net_long_change = (self.Wrot*self.timeval) - self.tru_anom
+        net_long_change = (self.Wrot*self.timeval_rot) - self.tru_anom + self.spin_history
         new_longs = self.longs[np.newaxis,:] + net_long_change[:,np.newaxis]
         longs_evolve = new_longs % (2.0*pi)
         net_zero_long = net_long_change % (2.0*pi)  # For rotating maps in Orth_Mapper
@@ -372,18 +399,65 @@ class parcel(object):
         visibility = 0.5*(np.cos(longs_minus_SOP) + np.absolute(np.cos(longs_minus_SOP)))*np.sin(self.colat)
         
         return illumination,visibility,SSP_long,SOP_long
-
+    
+    
+    def _initial_temperatures(self):
+        """Something something else."""
+        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
+        the_high_case = (np.sin(self.colat)/pi)**0.25
+        if np.isnan(self.recirc_effic):
+            infinite_eps = self.adv_freq_peri*self.radiate_time
+        else:
+            infinite_eps = self.recirc_effic
+        unity_eps = RecircEfficiency_Convert(infinite_eps)  # Get 0-1 epsilon
+        Tvals = unity_eps*the_high_case + (1.0-unity_eps)*the_low_case  # E.B. model parameterization
+        Tvals[Tvals<0.01] = 0.01
+        return Tvals
+    
+    def _bitwise_powtwo(self,n):
+        """Something something else."""
+        return ((n & (n-1)) == 0) and (n > 1)
+    
+    def _change_T_grid(self,want_temps,old_colat,old_longs,old_NSIDE):
+        """Something something else."""
+        if self._bitwise_powtwo(old_NSIDE) and self._bitwise_powtwo(self.NSIDE):
+            new_temps = hp.pixelfunc.ud_grade(want_temps,self.NSIDE)
+        else:
+            # Double longs grid to bridge 2*pi-to-0
+            doub_colat = np.concatenate((old_colat,old_colat))
+            doub_longs = np.concatenate((old_longs,old_longs+2.0*pi))
+            old_points = (doub_colat,doub_longs)
+            doub_wt = np.concatenate((want_temps,want_temps))
+            new_points = (self.colat,self.longs)
+            new_temps = interpolate.griddata(old_points,doub_wt,new_points,method='nearest')
+        return new_temps
+    
+    
+    def _downpipe_assume_same(self,n):
+        """Blah blah blah."""
+        return ['_no']*n
+    
     def _check_multi_updater(self,things):
         """Blah blah blah."""
         return any(x != '_no' for x in things)
     
+    def _using_neworold_param(self,new,old):
+        """Blah blah blah."""
+        return (new,new) if self._check_single_updater(new) else (old,old)
     
-    def _parameter_pipeline(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
-                            Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
-                            motions='calcR',orbval=1.0,rotval=1.0,
-                            radiate_time=12.0,recirc_effic=None,
-                            numOrbs=3,stepsPerRot=360,NSIDE=8):
+    def _has_param_changed(self,old,new):
+        """Blah blah blah."""
+        return True if old != new else '_no'
+    
+    
+    def _parameter_pipeline(self,Teff,Rstar,Mstar,
+                            Rplanet,smaxis,eccen,arg_peri,bondA,
+                            motions,orbval,rotval,
+                            radiate_time,recirc_effic,
+                            numOrbs,stepsPerRot,NSIDE,_makenew):
         """Lots of stuff and things."""
+        upd_Po,upd_Pr,upd_afp,upd_sPO,upd_tv,upd_kE = self._downpipe_assume_same(6)
+        
         # Handles '_no' input
         self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
         
@@ -402,105 +476,126 @@ class parcel(object):
         if self._check_single_updater(arg_peri):
             self.arg_peri = self._modify_arg_peri(arg_peri)
         
-        if self._check_multi_updater([eccen,motions,orbval,rotval]):
-            mots_loc,orbv_loc,rotv_loc = motions,orbval,rotval
+        mor_check = self._check_multi_updater([motions,orbval,rotval])
+        if mor_check or self._check_multi_updater([Mstar,smaxis,eccen]):
+            if not mor_check:
+                mots_loc,orbv_loc,rotv_loc = self._last_motions,self._last_orbval,self._last_rotval
+            else:
+                mots_loc,orbv_loc,rotv_loc = motions,orbval,rotval
             
-            if mots_loc not in self._accept_motions:
-                print('Constructor warning: strings for *motions* are')
-                print(self._accept_motions)
-                while mots_loc not in self._accept_motions:
-                    mots_loc = input('Enter a valid *motions* name (without quotes): ')
-                print('')
+                if mots_loc not in self._accept_motions:
+                    print('Constructor warning: strings for *motions* are')
+                    print(self._accept_motions)
+                    while mots_loc not in self._accept_motions:
+                        mots_loc = input('Enter a valid *motions* name (without quotes): ')
+                    print('')
         
-            # Check for non-'calc' in mots_loc
-            if (mots_loc in self._accept_motions[2:]) and (not isinstance(orbv_loc,(float,int))):
-                print('Constructor warning: *orbval* should be a float or an integer.')
-                while not isinstance(orbv_loc,(float,int)):
-                    orbv_loc = input('Enter a valid *orbval*: ')
-                print('')
+                # Check if *motions* is a non-'calc'...
+                if (mots_loc in self._accept_motions[2:]):
+                    if not isinstance(orbv_loc,(float,int)):
+                        print('Constructor warning: *orbval* should be a float or an integer.')
+                        while not isinstance(orbv_loc,(float,int)):
+                            orbv_loc = eval(input('Enter a valid *orbval*: '))
+                        print('')
+                else:
+                    # ...otherwise *orbval* doesn't matter.
+                    orbv_loc = orbv_loc if isinstance(orbv_loc,(float,int)) else self._last_orbval
 
-            if not isinstance(rotv_loc,(float,int)):
-                print('Constructor warning: *rotval* should be a float or an integer.')
-                while not isinstance(rotv_loc,(float,int)):
-                    rotv_loc = input('Enter a valid *rotval*: ')
-                print('')
+                if not isinstance(rotv_loc,(float,int)):
+                    print('Constructor warning: *rotval* should be a float or an integer.')
+                    while not isinstance(rotv_loc,(float,int)):
+                        rotv_loc = eval(input('Enter a valid *rotval*: '))
+                    print('')
+                
+                self._last_motions,self._last_orbval,self._last_rotval = mots_loc,orbv_loc,rotv_loc
             
+            if _makenew:
+                old_Porb,old_Prot,old_adv_freq_peri = '_null','_null','_null'
+            else:
+                old_Porb,old_Prot,old_adv_freq_peri = self.Porb,self.Prot,self.adv_freq_peri
             self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(mots_loc,orbv_loc,rotv_loc)
-            _upd_PoPradv = True
-        else:
-            _upd_PoPradv = '_no'
+            upd_Po = self._has_param_changed(old_Porb,self.Porb)
+            upd_Pr = self._has_param_changed(old_Prot,self.Prot)
+            upd_afp = self._has_param_changed(old_adv_freq_peri,self.adv_freq_peri)
         
-        if self._check_multi_updater([eccen,radiate_time,recirc_effic,_upd_PoPradv]):
-            if self._check_single_updater(radiate_time):
-                radt_loc,self._last_radiate_time = radiate_time,radiate_time
-            else:
-                radt_loc = self._last_radiate_time
-            
-            if self._check_single_updater(recirc_effic):
-                rece_loc,self._last_recirc_effic = recirc_effic,recirc_effic
-            else:
-                rece_loc = self._last_recirc_effic
-
+        if self._check_multi_updater([eccen,radiate_time,recirc_effic,upd_afp]):
+            radt_loc,self._last_radiate_time = self._using_neworold_param(radiate_time,self._last_radiate_time)
+            rece_loc,self._last_recirc_effic = self._using_neworold_param(recirc_effic,self._last_recirc_effic)
             self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radt_loc,rece_loc)
 
         ### Time
-        if self._check_single_updater(_upd_PoPradv):
+        if self._check_multi_updater([upd_Po,upd_Pr]):
             # If Prot = 0 it's your own fault. :-)
             self.rotationsPerOrbit = self.Porb/self.Prot
-
-        if self._check_multi_updater([stepsPerRot,_upd_PoPradv]):
-            if self._check_single_updater(stepsPerRot):
-                sPR_loc,self._last_stepsPerRot = stepsPerRot,stepsPerRot
-            else:
-                sPR_loc = self._last_stepsPerRot
+        if self._check_multi_updater([stepsPerRot,upd_Po,upd_Pr]):
+            sPR_loc,self._last_stepsPerRot = self._using_neworold_param(stepsPerRot,self._last_stepsPerRot)
             # When Porb < Prot, stepsPerRot will be steps per orbit.
-            self.stepsPerOrbit,_upd_sPO = round(sPR_loc*max(self.rotationsPerOrbit,1.0)),True
-        else:
-            _upd_sPO = '_no'
-
+            self.stepsPerOrbit,upd_sPO = round(sPR_loc*max(self.rotationsPerOrbit,1.0)),True
         if self._check_single_updater(numOrbs):
-            self.numOrbs,_upd_nO = numOrbs,True
-        else:
-            _upd_nO = '_no'
-
-        if self._check_multi_updater([_upd_nO,_upd_sPO,_upd_PoPradv]):
-            #some time stuff happens here
-            ## PICK UP FROM HERE NEXT TIME ##
-
-
-
-###########
-
+            self.numOrbs = numOrbs
+        if self._check_multi_updater([numOrbs,upd_sPO,upd_Po]):
+            self.timeval,upd_tv = self._initial_time_array(),True
+        if self._check_single_updater(upd_Pr):
+            self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
         
-        ### Time
-        self.rotationsPerOrbit = self.Porb/self.Prot  # If Prot = 0 it's your own fault. :-)
-        # When Porb < Prot, stepsPerRot will be steps per orbit.
-        self.stepsPerOrbit = round(stepsPerRot*max(self.rotationsPerOrbit,1.0))
-        self.numOrbs = numOrbs  # Total orbits for time array
-        self.timeval = self._initial_time_array()
+        ### Orbital Stuff
+        if self._check_multi_updater([smaxis,eccen,arg_peri,upd_Po]):
+            self.kep_E,upd_kE = self._setup_the_orbit(),True
+            if not _makenew:
+                self.timeval,upd_tv = self._match_phase_new_orbit(),True
         
-        ### Orbital stuff
-        self.kep_E = self._setup_the_orbit()
-        
-        (self.radius,self.orb_pos,
-         self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
-        (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
-         self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
-        (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
-         self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
-        self.periast_time,self.apast_time = 0,0.5*self.Porb
-        
+        if self._check_multi_updater([upd_tv,upd_kE]):
+            (self.radius,self.orb_pos,
+             self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+        if self._check_single_updater(upd_kE):
+            (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
+             self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
+            (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
+             self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
+        if self._check_single_updater(upd_Po):
+            self.periast_time,self.apast_time = 0,0.5*self.Porb
+
         ### Atmosphere coordinates
-        (self.colat,self.longs,self.pixel_sq_rad,
-         self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
-        self.longs_evolve,self._net_zero_long = self._calc_longs()
-         
-        (self.illumination,self.visibility,
-         self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+        if self._check_single_updater(NSIDE):
+            if not _makenew:
+                # For changing T resolution below
+                old_colat,old_longs,old_NSIDE = self.colat,self.longs,self.NSIDE
+            (self.colat,self.longs,self.pixel_sq_rad,
+             self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
+        if self._check_multi_updater([NSIDE,upd_Pr,upd_tv,upd_kE]):
+            self.longs_evolve,self._net_zero_long = self._calc_longs()
+            (self.illumination,self.visibility,
+             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+        
+        ### Temperatures
+        if _makenew:
+            self.Tvals_evolve = np.array([self._initial_temperatures()])
+        else:
+            t_i = -1 if self._has_T_evolved else 0
+            want_temps = self.Tvals_evolve[t_i,:]
+            if self._check_single_updater(NSIDE):
+                want_temps = self._change_T_grid(want_temps,old_colat,old_longs,old_NSIDE)
+            self.Tvals_evolve = np.array([want_temps])
+        
+        ### Evolve key
+        if self._check_multi_updater([radiate_time,recirc_effic,
+                                      upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
+            self._has_T_evolved = False
         
         return
-
     
+    def _setup_lasts(self):
+        """Blah blah blah."""
+        self._last_radiate_time = '_null'
+        self._last_recirc_effic = '_null'
+        self._last_stepsPerRot = '_null'
+        self._last_motions = '_null'
+        self._last_orbval = '_null'
+        self._last_rotval = '_null'
+        return
+
+    ### PICK BACK UP HERE WITH TESTING THAT THIS NEW PIPELINE WORKS (IT SEEMS TO MOSTLY SO FAR!) ####
+
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
                  Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
                  motions='calcR',orbval=1.0,rotval=1.0,
@@ -630,54 +725,63 @@ class parcel(object):
         
         self.name = name
         
-        self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
+        self._has_T_evolved = False
+        self._setup_lasts()
         
-        self.eccen = eccen  # eccentricity
-        self._ecc_factor = self._calc_efactor(eccen)  # For scaling ang. vel. at periastron (^-1 for period)
+        self._parameter_pipeline(Teff,Rstar,Mstar,
+                                 Rplanet,smaxis,eccen,arg_peri,bondA,
+                                 motions,orbval,rotval,
+                                 radiate_time,recirc_effic,
+                                 numOrbs,stepsPerRot,NSIDE,_makenew=True)
         
-        self.bondA = bondA  # planet Bond albedo
-        self.Teff = Teff  # star effective temp
-        self.Tirrad = self._calc_T_irradiation()
-        
-        ### We add 180 deg to the input "arg_peri", see this method. DON'T GET CONFUSED! :-)
-        self.arg_peri = self._modify_arg_peri(arg_peri)
-        
-        if motions not in self._accept_motions:
-            print('Constructor error: strings for *motions* are')
-            print(self._accept_motions)
-            return
-        self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(motions,orbval,rotval)
-        
-        self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radiate_time,recirc_effic)
-        
-        ### Time
-        self.rotationsPerOrbit = self.Porb/self.Prot  # If Prot = 0 it's your own fault. :-)
-        # When Porb < Prot, stepsPerRot will be steps per orbit.
-        self.stepsPerOrbit = round(stepsPerRot*max(self.rotationsPerOrbit,1.0))
-        self.numOrbs = numOrbs  # Total orbits for time array
-        self.timeval = self._initial_time_array()
-        
-        ### Orbital stuff
-        self.kep_E = self._setup_the_orbit()
-        
-        (self.radius,self.orb_pos,
-         self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
-        (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
-         self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
-        (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
-         self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
-        self.periast_time,self.apast_time = 0,0.5*self.Porb
-        
-        ### Atmosphere coordinates
-        (self.colat,self.longs,self.pixel_sq_rad,
-         self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
-        self.longs_evolve,self._net_zero_long = self._calc_longs()
-        
-        (self.illumination,self.visibility,
-         self.SSP_long,self.SOP_long) = self._calc_vis_illum()
-        
-        ### Null temperatures to start
-        self.Tvals_evolve = None
+#        self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
+#
+#        self.eccen = eccen  # eccentricity
+#        self._ecc_factor = self._calc_efactor(eccen)  # For scaling ang. vel. at periastron (^-1 for period)
+#
+#        self.bondA = bondA  # planet Bond albedo
+#        self.Teff = Teff  # star effective temp
+#        self.Tirrad = self._calc_T_irradiation()
+#
+#        ### We add 180 deg to the input "arg_peri", see this method. DON'T GET CONFUSED! :-)
+#        self.arg_peri = self._modify_arg_peri(arg_peri)
+#
+#        if motions not in self._accept_motions:
+#            print('Constructor error: strings for *motions* are')
+#            print(self._accept_motions)
+#            return
+#        self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(motions,orbval,rotval)
+#
+#        self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radiate_time,recirc_effic)
+#
+#        ### Time
+#        self.rotationsPerOrbit = self.Porb/self.Prot  # If Prot = 0 it's your own fault. :-)
+#        # When Porb < Prot, stepsPerRot will be steps per orbit.
+#        self.stepsPerOrbit = round(stepsPerRot*max(self.rotationsPerOrbit,1.0))
+#        self.numOrbs = numOrbs  # Total orbits for time array
+#        self.timeval = self._initial_time_array()
+#
+#        ### Orbital stuff
+#        self.kep_E = self._setup_the_orbit()
+#
+#        (self.radius,self.orb_pos,
+#         self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+#        (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
+#         self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
+#        (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
+#         self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
+#        self.periast_time,self.apast_time = 0,0.5*self.Porb
+#
+#        ### Atmosphere coordinates
+#        (self.colat,self.longs,self.pixel_sq_rad,
+#         self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
+#        self.longs_evolve,self._net_zero_long = self._calc_longs()
+#
+#        (self.illumination,self.visibility,
+#         self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+#
+#        ### Null temperatures to start
+#        self.Tvals_evolve = None
         return
         
 
@@ -714,6 +818,24 @@ class parcel(object):
         form_cols = '{:^26.3f} {:^22.3f} {:^10.3f}'
         print(form_cols.format(self.adv_freq_peri*self.sec_per_hour,self.radiate_time/self.sec_per_hour,self.recirc_effic))
         
+        return
+
+
+    ### Changing the system
+    def SmartModify_Params(self,name='_no',Teff='_no',Rstar='_no',Mstar='_no',
+                           Rplanet='_no',smaxis='_no',eccen='_no',arg_peri='_no',bondA='_no',
+                           motions='_no',orbval='_no',rotval='_no',
+                           radiate_time='_no',recirc_effic='_no',
+                           numOrbs='_no',stepsPerRot='_no',NSIDE='_no'):
+        """Change your stuff around!"""
+        if self._check_single_updater(name):
+            self.name = name
+        
+        self._parameter_pipeline(Teff,Rstar,Mstar,
+                                 Rplanet,smaxis,eccen,arg_peri,bondA,
+                                 motions,orbval,rotval,
+                                 radiate_time,recirc_effic,
+                                 numOrbs,stepsPerRot,NSIDE,_makenew=False)
         return
     
     
@@ -796,24 +918,25 @@ class parcel(object):
     
     ### Differential Equation
     
-    def _initial_temperatures(self):
-        """Something something else."""
-        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
-        the_high_case = (np.sin(self.colat)/pi)**0.25
-        if np.isnan(self.recirc_effic):
-            infinite_eps = self.adv_freq_peri*self.radiate_time
-        else:
-            infinite_eps = self.recirc_effic
-        unity_eps = RecircEfficiency_Convert(infinite_eps)  # Get 0-1 epsilon
-        Tvals = unity_eps*the_high_case + (1.0-unity_eps)*the_low_case  # E.B. model parameterization
-        Tvals[Tvals<0.01] = 0.01
-        return Tvals
-    
+#    def _initial_temperatures(self):
+#        """Something something else."""
+#        the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
+#        the_high_case = (np.sin(self.colat)/pi)**0.25
+#        if np.isnan(self.recirc_effic):
+#            infinite_eps = self.adv_freq_peri*self.radiate_time
+#        else:
+#            infinite_eps = self.recirc_effic
+#        unity_eps = RecircEfficiency_Convert(infinite_eps)  # Get 0-1 epsilon
+#        Tvals = unity_eps*the_high_case + (1.0-unity_eps)*the_low_case  # E.B. model parameterization
+#        Tvals[Tvals<0.01] = 0.01
+#        return Tvals
+
     ## ADD WAY TO ADJUST NUMBER OF ORBITS HERE? ##
     def _update_params_before_evolve(self):
         """Something something else."""
         self.timeval += self.Porb*self.numOrbs
-        t_start,t_end = self.timeval[[0,-1]]/self.Porb
+        o_start,o_end = self.timeval[[0,-1]]/self.Porb
+        self.timeval_rot += self.Porb*self.numOrbs
         
         (self.radius,self.orb_pos,
          self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
@@ -823,7 +946,7 @@ class parcel(object):
         (self.illumination,self.visibility,
          self.SSP_long,self.SOP_long) = self._calc_vis_illum()
 
-        return t_start,t_end
+        return o_start,o_end
     
     
     def _diff_eq_tempvals(self,start_Tvals):
@@ -863,15 +986,26 @@ class parcel(object):
     ## ADD WAY TO AUTOMATE EVOLVING UNTIL SOME EQUILIBRIUM IS REACHED? ##
     def Evolve_AtmoTemps(self):
         """Something something else."""
-        if np.all(self.Tvals_evolve == None):
-            start_Tvals = self._initial_temperatures()
-            print('Heating {:}, to orbit {:.2f} ... '.format(self.name,self.numOrbs),end='')
-        else:
-            t_start,t_end = self._update_params_before_evolve()
-            print('Re-heating {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,t_start,t_end),end='')
+        if self._has_T_evolved:
+            o_start,o_end = self._update_params_before_evolve()
             start_Tvals = self.Tvals_evolve[-1,:]
-    
+            s = 'Re-heating'
+        else:
+            o_start,o_end = self.timeval[[0,-1]]/self.Porb
+            start_Tvals = self.Tvals_evolve[0,:]
+            s = 'Heating'
+        print(s+' {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,o_start,o_end),end='')
+
+#        if np.all(self.Tvals_evolve == None):
+#            start_Tvals = self._initial_temperatures()
+#            print('Heating {:}, to orbit {:.2f} ... '.format(self.name,self.numOrbs),end='')
+#        else:
+#            t_start,t_end = self._update_params_before_evolve()
+#            print('Re-heating {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,t_start,t_end),end='')
+#            start_Tvals = self.Tvals_evolve[-1,:]
+
         self.Tvals_evolve = self._diff_eq_tempvals(start_Tvals)
+        self._has_T_evolved = True
         
         print('Evolving complete')
         return
