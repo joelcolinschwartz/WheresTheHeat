@@ -279,17 +279,20 @@ class parcel(object):
             
         else:
             radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
-            re = lambda e: self.adv_freq_peri*radiate_time if e == 0 else np.nan
-            recirc_effic = re(self.eccen)
+            recirc_effic = self.adv_freq_peri*radiate_time if self.eccen == 0 else np.nan
         return radiate_time,recirc_effic
 
 
-    ### PICK UP HERE, NEED TO TWEAK HOW TIMES ARE UPDATED
-    def _initial_time_array(self):
+    def _setup_time_array(self,_makenew):
         """Blah blah blah."""
-        t_end = self.Porb*self.numOrbs
+        if _makenew:
+            t_start = 0
+        else:
+            t_i = -1 if self._has_T_evolved else 0
+            t_start = self.timeval[t_i]
+        t_end = t_start + self.Porb*self.numOrbs
         N = round(self.numOrbs*self.stepsPerOrbit)
-        timeval = np.linspace(0,t_end,num=N+1)
+        timeval = np.linspace(t_start,t_end,num=N+1)
         return timeval
     
     def _reset_rot_times(self,_makenew):
@@ -541,9 +544,11 @@ class parcel(object):
         if self._check_single_updater(numOrbs):
             self.numOrbs = numOrbs
         if self._check_multi_updater([numOrbs,upd_sPO,upd_Po]):
-            self.timeval,upd_tv = self._initial_time_array(),True
+            self.timeval,upd_tv = self._setup_time_array(_makenew),True
+            self._should_add_orbtime = False
         if self._check_multi_updater([numOrbs,upd_sPO,upd_Po,upd_Pr]):
             self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
+            self._should_add_rottime = False
         
         ### Orbital Stuff
         if self._check_multi_updater([smaxis,eccen,arg_peri,upd_Po]):
@@ -588,7 +593,7 @@ class parcel(object):
         if self._check_multi_updater([radiate_time,recirc_effic,
                                       upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
             self._has_T_evolved = False
-        
+
         return
     
     def _setup_lasts(self):
@@ -732,6 +737,8 @@ class parcel(object):
         self.name = name
         
         self._has_T_evolved = False
+        self._should_add_orbtime = False
+        self._should_add_rottime = False
         self._setup_lasts()
         
         self._parameter_pipeline(Teff,Rstar,Mstar,
@@ -877,17 +884,23 @@ class parcel(object):
 
     def _update_params_before_evolve(self):
         """Something something else."""
-        self.timeval += self.Porb*self.numOrbs
-        o_start,o_end = self.timeval[[0,-1]]/self.Porb
-        self.timeval_rot += self.Porb*self.numOrbs
+        # Orbital
+        if self._should_add_orbtime:
+            self.timeval += self.Porb*self.numOrbs
         
-        (self.radius,self.orb_pos,
-         self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+            (self.radius,self.orb_pos,
+             self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
 
-        self.longs_evolve,self._net_zero_long = self._calc_longs()
-
-        (self.illumination,self.visibility,
-         self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+            self.longs_evolve,self._net_zero_long = self._calc_longs()
+             
+            (self.illumination,self.visibility,
+             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+        
+        o_start,o_end = self.timeval[[0,-1]]/self.Porb
+        
+        # Rotational
+        if self._should_add_rottime:
+            self.timeval_rot += self.Porb*self.numOrbs
 
         return o_start,o_end
     
@@ -902,8 +915,8 @@ class parcel(object):
                 Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
                 # Here advective frequency is constant- sign spcifies direction atmosphere rotates.
-                sn = lambda w: -1.0 if w < 0 else 1.0
-                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (sn(self.adv_freq_peri)*2.0*pi)
+                the_sign = -1.0 if self.adv_freq_peri < 0 else 1.0
+                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (the_sign*2.0*pi)
                 
                 for i in range(1,len(self.timeval)):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
@@ -929,18 +942,16 @@ class parcel(object):
     ## ADD WAY TO AUTOMATE EVOLVING UNTIL SOME EQUILIBRIUM IS REACHED? ##
     def Evolve_AtmoTemps(self):
         """Something something else."""
-        if self._has_T_evolved:
-            o_start,o_end = self._update_params_before_evolve()
-            start_Tvals = self.Tvals_evolve[-1,:]
-            s = 'Re-heating'
-        else:
-            o_start,o_end = self.timeval[[0,-1]]/self.Porb
-            start_Tvals = self.Tvals_evolve[0,:]
-            s = 'Heating'
+        t_i,s = (-1,'Re-heating') if self._has_T_evolved else (0,'Heating')
+        start_Tvals = self.Tvals_evolve[t_i,:]
+        
+        o_start,o_end = self._update_params_before_evolve()
         print(s+' {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,o_start,o_end),end='')
 
         self.Tvals_evolve = self._diff_eq_tempvals(start_Tvals)
         self._has_T_evolved = True
+        self._should_add_orbtime = True
+        self._should_add_rottime = True
         
         print('Evolving complete')
         return
