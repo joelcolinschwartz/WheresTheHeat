@@ -178,7 +178,7 @@ class parcel(object):
     planck = (6.62607004)*(10**(-34))
     speed_light = (2.99792458)*(10**8)  # in m/s
     
-    _accept_motions = ('calcR','calcA','perR','perA','freqR','freqA')
+    _accept_motions = ('perR','perA','freqR','freqA')
     _accept_begins = ('transit','eclipse','ascend','descend','periast','apast')
     
     
@@ -216,26 +216,80 @@ class parcel(object):
     def _calc_orb_period(self):
         return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
     
-    def _setup_motion(self,motions,orbval,rotval):
+    def _parse_motion(self,mcor_check,motions,calc_orb,orbval,rotval):
+        """Blah blah blah."""
+        if not mcor_check:
+            mots_loc,calo_loc,orbv_loc,rotv_loc = (self._last_motions,self._last_calc_orb,
+                                                   self._last_orbval,self._last_rotval)
+            _last_motions,_last_calc_orb,_last_orbval,_last_rotval = mots_loc,calo_loc,orbv_loc,rotv_loc
+        else:
+            mots_loc,calo_loc,orbv_loc,rotv_loc = motions,calc_orb,orbval,rotval
+            
+            if mots_loc not in self._accept_motions:
+                print('Constructor warning: strings for *motions* are')
+                print(self._accept_motions)
+                while mots_loc not in self._accept_motions:
+                    mots_loc = input('Enter a valid *motions* name (no quotes): ')
+                print('')
+            
+            if calo_loc not in [True,False]:
+                print('Constructor warning: *calc_orb* should be boolean.')
+                while calo_loc not in [True,False]:
+                    s = input('Enter a valid *calc_orb* [T/F]: ').capitalize()
+                    calo_loc = True if s in ['T','True'] else (False if s in ['F','False'] else '_bad')
+                print('')
+            
+            # Check if *calc_orb* is False...
+            if not calo_loc:
+                if not isinstance(orbv_loc,(float,int)):
+                    print('Constructor warning: *orbval* should be a float or an integer.')
+                    while not isinstance(orbv_loc,(float,int)):
+                        try:
+                            orbv_loc = eval(input('Enter a valid *orbval*: '))
+                        except:
+                            print('Cannot eval, try again.')
+                    print('')
+            else:
+                # ...otherwise *orbval* doesn't matter.
+                orbv_loc = orbv_loc if isinstance(orbv_loc,(float,int)) else self._last_orbval
+            
+            if not isinstance(rotv_loc,(float,int)):
+                print('Constructor warning: *rotval* should be a float or an integer.')
+                while not isinstance(rotv_loc,(float,int)):
+                    try:
+                        rotv_loc = eval(input('Enter a valid *rotval*: '))
+                    except:
+                        print('Cannot eval, try again.')
+                print('')
+            
+            _last_motions,_last_calc_orb,_last_orbval,_last_rotval = mots_loc,calo_loc,orbv_loc,rotv_loc
+
+        return mots_loc,calo_loc,orbv_loc,rotv_loc,_last_motions,_last_calc_orb,_last_orbval,_last_rotval
+    
+    
+    def _setup_motion(self,motions,calc_orb,orbval,rotval):
         """Blah blah blah."""
         mot_style,mot_qual = motions[:-1],motions[-1]
         w_to_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
         p_to_w = lambda p,r: 0 if p == np.inf else np.sign(r)*(2.0*pi/p)
         
+        if calc_orb:  # Calculated in seconds
+            Porb = self._calc_orb_period()
+        
         if mot_style == 'freq':  # Converted from degrees/day to rad/second
-            Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
+            if not calc_orb:
+                Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
+            
             if mot_qual == 'A':
                 Wrot = np.radians(rotval)/self.sec_per_day
             elif mot_qual == 'R':
                 Wrot = rotval*((2.0*pi/Porb)*self._ecc_factor)
             Prot = w_to_p(Wrot)
         
-        else:
-            if mot_style == 'calc':  # Calculated in seconds
-                Porb = self._calc_orb_period()
-            elif mot_style == 'per':  # Converted from days to seconds
+        elif mot_style == 'per':  # Converted from days to seconds
+            if not calc_orb:
                 Porb = orbval*self.sec_per_day
-            
+
             if mot_qual == 'A':
                 Prot = abs(rotval)*self.sec_per_day
             elif mot_qual == 'R':
@@ -244,7 +298,7 @@ class parcel(object):
         
         adv_freq_peri = Wrot - ((2.0*pi/Porb)*self._ecc_factor)
         return Porb,Prot,Wrot,adv_freq_peri
-    
+
     
     def _setup_radiate_recirc(self,tau_rad,epsilon):
         """Blah blah blah."""
@@ -291,7 +345,7 @@ class parcel(object):
             t_i = -1 if self._has_T_evolved else 0
             t_start = self.timeval[t_i]
         t_end = t_start + self.Porb*self.numOrbs
-        N = round(self.numOrbs*self.stepsPerOrbit)
+        N = round(self.numOrbs*self.stepsPerOrb)
         timeval = np.linspace(t_start,t_end,num=N+1)
         return timeval
     
@@ -322,7 +376,7 @@ class parcel(object):
         the_phase = self.alpha[p_i]
         
         # Get new orbital phases
-        t_demo = np.linspace(0,self.Porb,self.stepsPerOrbit+1)
+        t_demo = np.linspace(0,self.Porb,self.stepsPerOrb+1)
         _ig,tru_anom = self.kep_E.xyzPos(t_demo,getTA=True)
         alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
         
@@ -456,11 +510,11 @@ class parcel(object):
     
     def _parameter_pipeline(self,Teff,Rstar,Mstar,
                             Rplanet,smaxis,eccen,arg_peri,bondA,
-                            motions,orbval,rotval,
+                            motions,calc_orb,orbval,rotval,
                             radiate_time,recirc_effic,
-                            numOrbs,stepsPerRot,NSIDE,_makenew):
+                            numOrbs,stepsPerOrb,NSIDE,_makenew):
         """Lots of stuff and things."""
-        upd_Po,upd_Pr,upd_afp,upd_sPO,upd_tv,upd_kE = self._downpipe_assume_same(6)
+        upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE = self._downpipe_assume_same(5)
         
         # Handles '_no' input
         self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
@@ -480,50 +534,16 @@ class parcel(object):
         if self._check_single_updater(arg_peri):
             self.arg_peri = self._modify_arg_peri(arg_peri)
         
-        mor_check = self._check_multi_updater([motions,orbval,rotval])
-        if mor_check or self._check_multi_updater([Mstar,smaxis,eccen]):
-            if not mor_check:
-                mots_loc,orbv_loc,rotv_loc = self._last_motions,self._last_orbval,self._last_rotval
-            else:
-                mots_loc,orbv_loc,rotv_loc = motions,orbval,rotval
-            
-                if mots_loc not in self._accept_motions:
-                    print('Constructor warning: strings for *motions* are')
-                    print(self._accept_motions)
-                    while mots_loc not in self._accept_motions:
-                        mots_loc = input('Enter a valid *motions* name (without quotes): ')
-                    print('')
-        
-                # Check if *motions* is a non-'calc'...
-                if (mots_loc in self._accept_motions[2:]):
-                    if not isinstance(orbv_loc,(float,int)):
-                        print('Constructor warning: *orbval* should be a float or an integer.')
-                        while not isinstance(orbv_loc,(float,int)):
-                            try:
-                                orbv_loc = eval(input('Enter a valid *orbval*: '))
-                            except:
-                                print('Cannot eval, try again.')
-                        print('')
-                else:
-                    # ...otherwise *orbval* doesn't matter.
-                    orbv_loc = orbv_loc if isinstance(orbv_loc,(float,int)) else self._last_orbval
-
-                if not isinstance(rotv_loc,(float,int)):
-                    print('Constructor warning: *rotval* should be a float or an integer.')
-                    while not isinstance(rotv_loc,(float,int)):
-                        try:
-                            rotv_loc = eval(input('Enter a valid *rotval*: '))
-                        except:
-                            print('Cannot eval, try again.')
-                    print('')
-                
-                self._last_motions,self._last_orbval,self._last_rotval = mots_loc,orbv_loc,rotv_loc
-            
+        mcor_check = self._check_multi_updater([motions,calc_orb,orbval,rotval])
+        if mcor_check or self._check_multi_updater([Mstar,smaxis,eccen]):
+            (mots_loc,calo_loc,orbv_loc,rotv_loc,
+             self._last_motions,self._last_calc_orb,
+             self._last_orbval,self._last_rotval) = self._parse_motion(mcor_check,motions,calc_orb,orbval,rotval)
             if _makenew:
                 old_Porb,old_Prot,old_adv_freq_peri = '_null','_null','_null'
             else:
                 old_Porb,old_Prot,old_adv_freq_peri = self.Porb,self.Prot,self.adv_freq_peri
-            self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(mots_loc,orbv_loc,rotv_loc)
+            self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(mots_loc,calo_loc,orbv_loc,rotv_loc)
             upd_Po = self._has_param_changed(old_Porb,self.Porb)
             upd_Pr = self._has_param_changed(old_Prot,self.Prot)
             upd_afp = self._has_param_changed(old_adv_freq_peri,self.adv_freq_peri)
@@ -534,19 +554,14 @@ class parcel(object):
             self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radt_loc,rece_loc)
 
         ### Time
-        if self._check_multi_updater([upd_Po,upd_Pr]):
-            # If Prot = 0 it's your own fault. :-)
-            self.rotationsPerOrbit = self.Porb/self.Prot
-        if self._check_multi_updater([stepsPerRot,upd_Po,upd_Pr]):
-            sPR_loc,self._last_stepsPerRot = self._using_neworold_param(stepsPerRot,self._last_stepsPerRot)
-            # When Porb < Prot, stepsPerRot will be steps per orbit.
-            self.stepsPerOrbit,upd_sPO = round(sPR_loc*max(self.rotationsPerOrbit,1.0)),True
+        if self._check_single_updater(stepsPerOrb):
+            self.stepsPerOrb = stepsPerOrb
         if self._check_single_updater(numOrbs):
             self.numOrbs = numOrbs
-        if self._check_multi_updater([numOrbs,upd_sPO,upd_Po]):
+        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po]):
             self.timeval,upd_tv = self._setup_time_array(_makenew),True
             self._should_add_orbtime = False
-        if self._check_multi_updater([numOrbs,upd_sPO,upd_Po,upd_Pr]):
+        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po,upd_Pr]):
             self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
             self._should_add_rottime = False
         
@@ -600,8 +615,8 @@ class parcel(object):
         """Blah blah blah."""
         self._last_radiate_time = '_null'
         self._last_recirc_effic = '_null'
-        self._last_stepsPerRot = '_null'
         self._last_motions = '_null'
+        self._last_calc_orb = '_null'
         self._last_orbval = '_null'
         self._last_rotval = '_null'
         return
@@ -609,9 +624,9 @@ class parcel(object):
 
     def __init__(self,name='Hot Jupiter',Teff=5778,Rstar=1.0,Mstar=1.0,
                  Rplanet=1.0,smaxis=0.1,eccen=0,arg_peri=0,bondA=0,
-                 motions='calcR',orbval=1.0,rotval=1.0,
+                 motions='perR',calc_orb=True,orbval=1.0,rotval=1.0,
                  radiate_time=12.0,recirc_effic=None,
-                 numOrbs=3,stepsPerRot=360,NSIDE=8):
+                 numOrbs=3,stepsPerOrb=3600,NSIDE=8):
         
         """The __init__ method allows to set attributes unique to each parcel instance.
         It takes some parameters in the units specified in the docstring. Some are 
@@ -733,6 +748,7 @@ class parcel(object):
         on the planet
         
         """
+        print('Constructing model ... ',end='')
         
         self.name = name
         
@@ -743,9 +759,11 @@ class parcel(object):
         
         self._parameter_pipeline(Teff,Rstar,Mstar,
                                  Rplanet,smaxis,eccen,arg_peri,bondA,
-                                 motions,orbval,rotval,
+                                 motions,calc_orb,orbval,rotval,
                                  radiate_time,recirc_effic,
-                                 numOrbs,stepsPerRot,NSIDE,_makenew=True)
+                                 numOrbs,stepsPerOrb,NSIDE,_makenew=True)
+        
+        print('Finished building {:}'.format(self.name))
         return
         
 
@@ -788,18 +806,21 @@ class parcel(object):
     ### Changing the system
     def SmartModify_Params(self,name='_no',Teff='_no',Rstar='_no',Mstar='_no',
                            Rplanet='_no',smaxis='_no',eccen='_no',arg_peri='_no',bondA='_no',
-                           motions='_no',orbval='_no',rotval='_no',
+                           motions='_no',calc_orb='_no',orbval='_no',rotval='_no',
                            radiate_time='_no',recirc_effic='_no',
-                           numOrbs='_no',stepsPerRot='_no',NSIDE='_no'):
+                           numOrbs='_no',stepsPerOrb='_no',NSIDE='_no'):
         """Change your stuff around!"""
+        print('Starting smart mods ... ',end='')
         if self._check_single_updater(name):
             self.name = name
         
         self._parameter_pipeline(Teff,Rstar,Mstar,
                                  Rplanet,smaxis,eccen,arg_peri,bondA,
-                                 motions,orbval,rotval,
+                                 motions,calc_orb,orbval,rotval,
                                  radiate_time,recirc_effic,
-                                 numOrbs,stepsPerRot,NSIDE,_makenew=False)
+                                 numOrbs,stepsPerOrb,NSIDE,_makenew=False)
+        
+        print('Finished modifying {:}'.format(self.name))
         return
     
     
@@ -840,7 +861,7 @@ class parcel(object):
         else:
             fig_orbit,axorb = plt.subplots(figsize=(7,7))
         
-        i_one = int(self.stepsPerOrbit+1)
+        i_one = int(self.stepsPerOrb+1)
         au_pos = self.orb_pos[:i_one]/self.astro_unit
         axorb.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
         
@@ -962,7 +983,7 @@ class parcel(object):
     def _final_orbit_index(self):
         """Something something else."""
         # +1 so initial phase is not included twice.
-        return int(round(self.stepsPerOrbit*(self.numOrbs-1))) + 1
+        return int(round(self.stepsPerOrb*(self.numOrbs-1))) + 1
     
     def _orth_bounds(self,force_contrast,heat_map):
         """Something something else."""
@@ -1298,7 +1319,7 @@ class parcel(object):
 
         i_end = fi_end + fin_orb_start
             
-        i_start = i_end - int(self.stepsPerOrbit)
+        i_start = i_end - int(self.stepsPerOrb)
         i_end += 1  # To have initial phase repeated
         return i_start,i_end
     
@@ -1469,7 +1490,7 @@ class parcel(object):
         Something else.
         
         """
-        start_time = int(self.stepsPerOrbit*(self.numOrbs-1))
+        start_time = int(self.stepsPerOrb*(self.numOrbs-1))
         
         alphas = self.alpha[start_time:]
         Tevo_eq = self.Tvals_evolve[start_time:,self._on_equator]
