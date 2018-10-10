@@ -216,90 +216,187 @@ class parcel(object):
     def _calc_orb_period(self):
         return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
     
-    def _parse_motion(self,mcor_check,motions,calc_orb,orbval,rotval):
+    def _parse_motion(self,motions,calc_orb,orbval,rotval):
         """Blah blah blah."""
-        if not mcor_check:
-            mots_loc,calo_loc,orbv_loc,rotv_loc = (self._last_motions,self._last_calc_orb,
-                                                   self._last_orbval,self._last_rotval)
-            _last_motions,_last_calc_orb,_last_orbval,_last_rotval = mots_loc,calo_loc,orbv_loc,rotv_loc
-        else:
-            mots_loc,calo_loc,orbv_loc,rotv_loc = motions,calc_orb,orbval,rotval
-            
-            if mots_loc not in self._accept_motions:
-                print('Constructor warning: strings for *motions* are')
-                print(self._accept_motions)
-                while mots_loc not in self._accept_motions:
-                    mots_loc = input('Enter a valid *motions* name (no quotes): ')
-                print('')
-            
-            if calo_loc not in [True,False]:
-                print('Constructor warning: *calc_orb* should be boolean.')
-                while calo_loc not in [True,False]:
-                    s = input('Enter a valid *calc_orb* [T/F]: ').capitalize()
-                    calo_loc = True if s in ['T','True'] else (False if s in ['F','False'] else '_bad')
-                print('')
-            
-            # Check if *calc_orb* is False...
-            if not calo_loc:
-                if not isinstance(orbv_loc,(float,int)):
-                    print('Constructor warning: *orbval* should be a float or an integer.')
-                    while not isinstance(orbv_loc,(float,int)):
-                        try:
-                            orbv_loc = eval(input('Enter a valid *orbval*: '))
-                        except:
-                            print('Cannot eval, try again.')
-                    print('')
-            else:
-                # ...otherwise *orbval* doesn't matter.
-                orbv_loc = orbv_loc if isinstance(orbv_loc,(float,int)) else self._last_orbval
-            
-            if not isinstance(rotv_loc,(float,int)):
-                print('Constructor warning: *rotval* should be a float or an integer.')
-                while not isinstance(rotv_loc,(float,int)):
+        mots_loc,calo_loc,orbv_loc,rotv_loc = motions,calc_orb,orbval,rotval
+        cur = lambda v: print('    Current value is {:}.'.format(v))
+        blank = '; leave blank to keep current: '
+        ok = '    OK, keeping current value.'
+        
+        if mots_loc not in self._accept_motions:
+            print('Constructor warning: strings for *motions* are '+str(self._accept_motions)+'.')
+            cur(self._last_motions)
+            while mots_loc not in self._accept_motions:
+                mots_loc = input('    Enter a valid *motions* (no quotes)'+blank)
+                if mots_loc == '':
+                    print(ok)
+                    mots_loc = self._last_motions
+                    break
+            print('')
+        
+        if calo_loc not in [True,False]:
+            print('Constructor warning: *calc_orb* is boolean.')
+            cur(self._last_calc_orb)
+            while calo_loc not in [True,False]:
+                s = input('    Enter a valid *calc_orb* [T/F]'+blank).capitalize()
+                if s == '':
+                    print(ok)
+                    calo_loc = self._last_calc_orb
+                    break
+                calo_loc = True if s in ['T','True'] else (False if s in ['F','False'] else '_bad')
+            print('')
+        
+        # Check if *calc_orb* is False...
+        if not calo_loc:
+            if not isinstance(orbv_loc,(float,int)):
+                print('Constructor warning: *orbval* is a float or an integer.')
+                cur(self._last_orbval)
+                while not isinstance(orbv_loc,(float,int)):
+                    o = input('    Enter a valid *orbval*'+blank)
+                    if o == '':
+                        print(ok)
+                        orbv_loc = self._last_orbval
+                        break
                     try:
-                        rotv_loc = eval(input('Enter a valid *rotval*: '))
+                        orbv_loc = eval(o)
                     except:
-                        print('Cannot eval, try again.')
+                        print('    Cannot eval, try again.')
                 print('')
-            
-            _last_motions,_last_calc_orb,_last_orbval,_last_rotval = mots_loc,calo_loc,orbv_loc,rotv_loc
+        else:
+            # ...otherwise *orbval* doesn't matter.
+            orbv_loc = orbv_loc if isinstance(orbv_loc,(float,int)) else self._last_orbval
+        
+        if not isinstance(rotv_loc,(float,int,list)):
+            print('Constructor warning: *rotval* is a float, an integer, or a list (see docs).')
+            cur(self._last_rotval)
+            while not isinstance(rotv_loc,(float,int,list)):
+                r = input('    Enter a valid *rotval*'+blank)
+                if r == '':
+                    print(ok)
+                    rotv_loc = self._last_rotval
+                    break
+                try:
+                    rotv_loc = eval(r)
+                except:
+                    print('    Cannot eval, try again.')
+            print('')
 
-        return mots_loc,calo_loc,orbv_loc,rotv_loc,_last_motions,_last_calc_orb,_last_orbval,_last_rotval
+        return mots_loc,calo_loc,orbv_loc,rotv_loc
     
-    
-    def _setup_motion(self,motions,calc_orb,orbval,rotval):
+
+    def _setup_orb_motion(self,motions,calc_orb,orbval):
         """Blah blah blah."""
-        mot_style,mot_qual = motions[:-1],motions[-1]
-        w_to_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
-        p_to_w = lambda p,r: 0 if p == np.inf else np.sign(r)*(2.0*pi/p)
+        mot_style = motions[:-1]
         
         if calc_orb:  # Calculated in seconds
             Porb = self._calc_orb_period()
+        elif mot_style == 'freq':  # Converted from degrees/day to rad/second
+            Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
+        elif mot_style == 'per':  # Converted from days to seconds
+            Porb = orbval*self.sec_per_day
+        return Porb
+    
+    
+    def _rotation_builder(self,rotval):
+        """Blah blah blah."""
+        t_norm = self.timeval_rot/self.Porb  # seconds to number of orbits
+        
+        RV_built = rotval[0]  # Constant term
+        for rv in rotval[1:]:
+            kind = rv[0]
+            rvA = np.asarray(rv[1:])
+            
+            if rvA.ndim == 2:  # [[order,coeff,offset],[...],...]
+                order = rvA[:,0,np.newaxis]
+                coeff = rvA[:,1,np.newaxis]
+                offset = rvA[:,2,np.newaxis]
+            elif rvA.ndim == 1:  # [coeff1,coeff2,...]
+                order = np.arange(1,len(rvA)+1)[:,np.newaxis]
+                coeff = rvA[:,np.newaxis]
+                offset = 0
+    
+            if kind == 'time':
+                alter_RV = (t_norm - offset)**order
+            elif kind == 'peri_sin':
+                alter_RV = np.sin(order*(self.tru_anom - np.radians(offset)))
+            elif kind == 'peri_cos':
+                alter_RV = np.cos(order*(self.tru_anom - np.radians(offset)))
+            elif kind == 'phase_sin':
+                alter_RV = np.sin(order*(np.radians(self.alpha - offset)))
+            elif kind == 'phase_cos':
+                alter_RV = np.cos(order*(np.radians(self.alpha - offset)))
+            
+            RV_built += np.sum(coeff*alter_RV,axis=0)
+            
+        return RV_built
+    
+    def _setup_rot_motion(self,motions,rotval):
+        """Blah blah blah."""
+        mot_style,mot_qual = motions[:-1],motions[-1]
+
+        if isinstance(rotval,list):  # Calc values from rotval nested lists
+            RV_built,rv_varies = self._rotation_builder(rotval),True
+        elif isinstance(rotval,(float,int)):
+            RV_built,rv_varies = rotval,False
         
         if mot_style == 'freq':  # Converted from degrees/day to rad/second
-            if not calc_orb:
-                Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
-            
             if mot_qual == 'A':
-                Wrot = np.radians(rotval)/self.sec_per_day
+                Wrot = np.radians(RV_built)/self.sec_per_day
             elif mot_qual == 'R':
-                Wrot = rotval*((2.0*pi/Porb)*self._ecc_factor)
+                Wrot = RV_built*((2.0*pi/self.Porb)*self._ecc_factor)
+            
+            make_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
+            w_to_p = np.vectorize(make_p) if rv_varies else make_p
             Prot = w_to_p(Wrot)
         
         elif mot_style == 'per':  # Converted from days to seconds
-            if not calc_orb:
-                Porb = orbval*self.sec_per_day
-
             if mot_qual == 'A':
-                Prot = abs(rotval)*self.sec_per_day
+                Prot = abs(RV_built)*self.sec_per_day
             elif mot_qual == 'R':
-                Prot = abs(rotval)*(Porb/self._ecc_factor)
-            Wrot = p_to_w(Prot,rotval)
+                Prot = abs(RV_built)*(self.Porb/self._ecc_factor)
+            
+            make_w = lambda p,r: 0 if p == np.inf else np.sign(r)*(2.0*pi/p)
+            p_to_w = np.vectorize(make_w) if rv_varies else make_w
+            Wrot = p_to_w(Prot,RV_built)
         
-        adv_freq_peri = Wrot - ((2.0*pi/Porb)*self._ecc_factor)
-        return Porb,Prot,Wrot,adv_freq_peri
-
+        Wadvec = Wrot - self.Worb
+        return Prot,Wrot,Wadvec
     
+    
+#    def _setup_motion(self,motions,calc_orb,orbval,rotval):
+#        """Blah blah blah."""
+#        mot_style,mot_qual = motions[:-1],motions[-1]
+#        w_to_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
+#        p_to_w = lambda p,r: 0 if p == np.inf else np.sign(r)*(2.0*pi/p)
+#
+#        if calc_orb:  # Calculated in seconds
+#            Porb = self._calc_orb_period()
+#
+#        if mot_style == 'freq':  # Converted from degrees/day to rad/second
+#            if not calc_orb:
+#                Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
+#
+#            if mot_qual == 'A':
+#                Wrot = np.radians(rotval)/self.sec_per_day
+#            elif mot_qual == 'R':
+#                Wrot = rotval*((2.0*pi/Porb)*self._ecc_factor)
+#            Prot = w_to_p(Wrot)
+#
+#        elif mot_style == 'per':  # Converted from days to seconds
+#            if not calc_orb:
+#                Porb = orbval*self.sec_per_day
+#
+#            if mot_qual == 'A':
+#                Prot = abs(rotval)*self.sec_per_day
+#            elif mot_qual == 'R':
+#                Prot = abs(rotval)*(Porb/self._ecc_factor)
+#            Wrot = p_to_w(Prot,rotval)
+#
+#        adv_freq_peri = Wrot - ((2.0*pi/Porb)*self._ecc_factor)
+#        return Porb,Prot,Wrot,adv_freq_peri
+
+
+    ### PICK UP HERE NEXT TIME, NEED TO CHANGE TO Wadvec AND SUCH. ###
     def _setup_radiate_recirc(self,tau_rad,epsilon):
         """Blah blah blah."""
         if epsilon != None:
@@ -341,13 +438,19 @@ class parcel(object):
         """Blah blah blah."""
         if _makenew:
             t_start = 0
+            n_start = 0
         else:
             t_i = -1 if self._has_T_evolved else 0
             t_start = self.timeval[t_i]
+            n_start = self.trackorbs[t_i]
+        
         t_end = t_start + self.Porb*self.numOrbs
         N = round(self.numOrbs*self.stepsPerOrb)
         timeval = np.linspace(t_start,t_end,num=N+1)
-        return timeval
+        
+        n_end = n_start + self.numOrbs
+        trackorbs = np.linspace(n_start,n_end,num=N+1)
+        return timeval,trackorbs
     
     def _reset_rot_times(self,_makenew):
         """Blah blah blah."""
@@ -376,19 +479,31 @@ class parcel(object):
         the_phase = self.alpha[p_i]
         
         # Get new orbital phases
-        t_demo = np.linspace(0,self.Porb,self.stepsPerOrb+1)
+        t_demo = np.linspace(0,self.Porb,(10*self.stepsPerOrb)+1)
         _ig,tru_anom = self.kep_E.xyzPos(t_demo,getTA=True)
         alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
         
         # Get new time of matched phase
         tp_i = np.argmax(np.cos(np.radians(alpha - the_phase)))
         t_match = t_demo[tp_i]
-        return self.timeval - self.timeval[0] + t_match
+        new_timeval = self.timeval - self.timeval[0] + t_match
+        
+        # Update orbit count if needed
+        n_i = -1 if self._should_add_orbtime else 0
+        n_start = self.trackorbs[n_i]
+        n_end = n_start + self.numOrbs
+        N = round(self.numOrbs*self.stepsPerOrb)
+        new_trackorbs = np.linspace(n_start,n_end,num=N+1)
+        return new_timeval,new_trackorbs
     
     def _calc_orbit_props(self):
         """Stuff and things."""
         radius = self.kep_E.radius(self.timeval)
         orb_pos,tru_anom = self.kep_E.xyzPos(self.timeval,getTA=True)
+        
+        vel_comp = self.kep_E.xyzVel(self.timeval)
+        velocity = (np.sum(vel_comp**2.0,axis=1))**0.5
+        Worb = velocity/radius
         
         # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
         # So: alpha = 90 + arg_peri + tru_anom
@@ -396,7 +511,7 @@ class parcel(object):
         # Minus here because alpha = 0 at transit.
         frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
         
-        return radius,orb_pos,tru_anom,alpha,frac_litup
+        return radius,orb_pos,tru_anom,Worb,alpha,frac_litup
     
     def _find_conjunctions_nodes(self,kind):
         """Blah blah blah."""
@@ -514,7 +629,7 @@ class parcel(object):
                             radiate_time,recirc_effic,
                             numOrbs,stepsPerOrb,NSIDE,_makenew):
         """Lots of stuff and things."""
-        upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE = self._downpipe_assume_same(5)
+        upd_mot,upd_cal,upd_obv,upd_rtv,upd_Po,upd_Pr,upd_Wadv,upd_tv,upd_kE = self._downpipe_assume_same(9)
         
         # Handles '_no' input
         self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
@@ -534,46 +649,45 @@ class parcel(object):
         if self._check_single_updater(arg_peri):
             self.arg_peri = self._modify_arg_peri(arg_peri)
         
-        mcor_check = self._check_multi_updater([motions,calc_orb,orbval,rotval])
-        if mcor_check or self._check_multi_updater([Mstar,smaxis,eccen]):
-            (mots_loc,calo_loc,orbv_loc,rotv_loc,
-             self._last_motions,self._last_calc_orb,
-             self._last_orbval,self._last_rotval) = self._parse_motion(mcor_check,motions,calc_orb,orbval,rotval)
-            if _makenew:
-                old_Porb,old_Prot,old_adv_freq_peri = '_null','_null','_null'
-            else:
-                old_Porb,old_Prot,old_adv_freq_peri = self.Porb,self.Prot,self.adv_freq_peri
-            self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(mots_loc,calo_loc,orbv_loc,rotv_loc)
-            upd_Po = self._has_param_changed(old_Porb,self.Porb)
-            upd_Pr = self._has_param_changed(old_Prot,self.Prot)
-            upd_afp = self._has_param_changed(old_adv_freq_peri,self.adv_freq_peri)
+        if self._check_multi_updater([motions,calc_orb,orbval,rotval]):
+            mots_loc,calo_loc,orbv_loc,rotv_loc = self._parse_motion(motions,calc_orb,orbval,rotval)
+            upd_mot = self._has_param_changed(self._last_motions,mots_loc)
+            upd_cal = self._has_param_changed(self._last_calc_orb,calo_loc)
+            upd_obv = self._has_param_changed(self._last_orbval,orbv_loc)
+            upd_rtv = self._has_param_changed(self._last_rotval,rotv_loc)
+            
+            (self._last_motions,self._last_calc_orb,
+             self._last_orbval,self._last_rotval) = mots_loc,calo_loc,orbv_loc,rotv_loc
+        else:
+            mots_loc,calo_loc,orbv_loc,rotv_loc = (self._last_motions,self._last_calc_orb,
+                                                   self._last_orbval,self._last_rotval)
         
-        if self._check_multi_updater([eccen,radiate_time,recirc_effic,upd_afp]):
-            radt_loc,self._last_radiate_time = self._using_neworold_param(radiate_time,self._last_radiate_time)
-            rece_loc,self._last_recirc_effic = self._using_neworold_param(recirc_effic,self._last_recirc_effic)
-            self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radt_loc,rece_loc)
+        ### Orbital Stuff
+        calc_check = calo_loc and self._check_multi_updater([Mstar,smaxis])
+        if self._check_multi_updater([upd_mot,upd_cal,upd_obv]) or calc_check:
+            old_Porb = '_null' if _makenew else self.Porb
+            self.Porb = self._setup_orb_motion(mots_loc,calo_loc,orbv_loc)
+            upd_Po = self._has_param_changed(old_Porb,self.Porb)
+        else:
+            old_Porb = self.Porb
 
-        ### Time
         if self._check_single_updater(stepsPerOrb):
             self.stepsPerOrb = stepsPerOrb
         if self._check_single_updater(numOrbs):
             self.numOrbs = numOrbs
         if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po]):
-            self.timeval,upd_tv = self._setup_time_array(_makenew),True
-            self._should_add_orbtime = False
-        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po,upd_Pr]):
-            self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
-            self._should_add_rottime = False
-        
-        ### Orbital Stuff
+            self.timeval,self.trackorbs = self._setup_time_array(_makenew)
+            upd_tv,self._should_add_orbtime = True,False
+
         if self._check_multi_updater([smaxis,eccen,arg_peri,upd_Po]):
             self.kep_E,upd_kE = self._setup_the_orbit(),True
             if not _makenew:
-                self.timeval,upd_tv = self._match_phase_new_orbit(),True
-        
-        if self._check_multi_updater([upd_tv,upd_kE]):
-            (self.radius,self.orb_pos,
-             self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+                self.timeval,self.trackorbs = self._match_phase_new_orbit()
+                upd_tv,self._should_add_orbtime = True,False
+
+        if self._check_multi_updater([upd_tv,upd_kE,upd_Po]):
+            (self.radius,self.orb_pos,self.tru_anom,
+             self.Worb,self.alpha,self.frac_litup) = self._calc_orbit_props()
         if self._check_single_updater(upd_kE):
             (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
              self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
@@ -582,32 +696,98 @@ class parcel(object):
         if self._check_single_updater(upd_Po):
             self.periast_time,self.apast_time = 0,0.5*self.Porb
 
-        ### Atmosphere coordinates
-        if self._check_single_updater(NSIDE):
-            if not _makenew:
-                # For changing T resolution below
-                old_colat,old_longs,old_NSIDE = self.colat,self.longs,self.NSIDE
-            (self.colat,self.longs,self.pixel_sq_rad,
-             self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
-        if self._check_multi_updater([NSIDE,upd_Pr,upd_tv,upd_kE]):
-            self.longs_evolve,self._net_zero_long = self._calc_longs()
-            (self.illumination,self.visibility,
-             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+        ### Rotational Stuff
+        ecc_check = (mots_loc[-1] == 'R') and self._check_single_updater(eccen)
+        if self._check_multi_updater([upd_tv,upd_mot,upd_rtv]) or ecc_check:
+            self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
+            self._should_add_rottime = False
         
-        ### Temperatures
-        if _makenew:
-            self.Tvals_evolve = np.array([self._initial_temperatures()])
-        elif self._check_multi_updater([NSIDE,upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
-            t_i = -1 if self._has_T_evolved else 0
-            want_temps = self.Tvals_evolve[t_i,:]
-            if self._check_single_updater(NSIDE):
-                want_temps = self._change_T_grid(want_temps,old_colat,old_longs,old_NSIDE)
-            self.Tvals_evolve = np.array([want_temps])
+            old_Prot,old_Wadvec = ('_null','_null') if _makenew else (self.Prot,self.Wadvec)
+            self.Prot,self.Wrot,self.Wadvec = self._setup_rot_motion(motions,rotval)
+            upd_Pr = self._has_param_changed(old_Prot,self.Prot)
+            upd_Wadv = self._has_param_changed(old_Wadvec,self.Wadvec)
+
+
+
+
         
-        ### Evolve key
-        if self._check_multi_updater([radiate_time,recirc_effic,
-                                      upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
-            self._has_T_evolved = False
+        
+        #########
+        
+#        mcor_check = self._check_multi_updater([motions,calc_orb,orbval,rotval])
+#        if mcor_check or self._check_multi_updater([Mstar,smaxis,eccen]):
+#            (mots_loc,calo_loc,orbv_loc,rotv_loc,
+#             self._last_motions,self._last_calc_orb,
+#             self._last_orbval,self._last_rotval) = self._parse_motion(mcor_check,motions,calc_orb,orbval,rotval)
+#            if _makenew:
+#                old_Porb,old_Prot,old_adv_freq_peri = '_null','_null','_null'
+#            else:
+#                old_Porb,old_Prot,old_adv_freq_peri = self.Porb,self.Prot,self.adv_freq_peri
+#            self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(mots_loc,calo_loc,orbv_loc,rotv_loc)
+#            upd_Po = self._has_param_changed(old_Porb,self.Porb)
+#            upd_Pr = self._has_param_changed(old_Prot,self.Prot)
+#            upd_afp = self._has_param_changed(old_adv_freq_peri,self.adv_freq_peri)
+#
+#        if self._check_multi_updater([eccen,radiate_time,recirc_effic,upd_afp]):
+#            radt_loc,self._last_radiate_time = self._using_neworold_param(radiate_time,self._last_radiate_time)
+#            rece_loc,self._last_recirc_effic = self._using_neworold_param(recirc_effic,self._last_recirc_effic)
+#            self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radt_loc,rece_loc)
+#
+#        ### Time
+#        if self._check_single_updater(stepsPerOrb):
+#            self.stepsPerOrb = stepsPerOrb
+#        if self._check_single_updater(numOrbs):
+#            self.numOrbs = numOrbs
+#        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po]):
+#            self.timeval,upd_tv = self._setup_time_array(_makenew),True
+#            self._should_add_orbtime = False
+#        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po,upd_Pr]):
+#            self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
+#            self._should_add_rottime = False
+#
+#        ### Orbital Stuff
+#        if self._check_multi_updater([smaxis,eccen,arg_peri,upd_Po]):
+#            self.kep_E,upd_kE = self._setup_the_orbit(),True
+#            if not _makenew:
+#                self.timeval,upd_tv = self._match_phase_new_orbit(),True
+#
+#        if self._check_multi_updater([upd_tv,upd_kE]):
+#            (self.radius,self.orb_pos,
+#             self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
+#        if self._check_single_updater(upd_kE):
+#            (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
+#             self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
+#            (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
+#             self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
+#        if self._check_single_updater(upd_Po):
+#            self.periast_time,self.apast_time = 0,0.5*self.Porb
+#
+#        ### Atmosphere coordinates
+#        if self._check_single_updater(NSIDE):
+#            if not _makenew:
+#                # For changing T resolution below
+#                old_colat,old_longs,old_NSIDE = self.colat,self.longs,self.NSIDE
+#            (self.colat,self.longs,self.pixel_sq_rad,
+#             self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
+#        if self._check_multi_updater([NSIDE,upd_Pr,upd_tv,upd_kE]):
+#            self.longs_evolve,self._net_zero_long = self._calc_longs()
+#            (self.illumination,self.visibility,
+#             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+#
+#        ### Temperatures
+#        if _makenew:
+#            self.Tvals_evolve = np.array([self._initial_temperatures()])
+#        elif self._check_multi_updater([NSIDE,upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
+#            t_i = -1 if self._has_T_evolved else 0
+#            want_temps = self.Tvals_evolve[t_i,:]
+#            if self._check_single_updater(NSIDE):
+#                want_temps = self._change_T_grid(want_temps,old_colat,old_longs,old_NSIDE)
+#            self.Tvals_evolve = np.array([want_temps])
+#
+#        ### Evolve key
+#        if self._check_multi_updater([radiate_time,recirc_effic,
+#                                      upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
+#            self._has_T_evolved = False
 
         return
     
@@ -615,10 +795,10 @@ class parcel(object):
         """Blah blah blah."""
         self._last_radiate_time = '_null'
         self._last_recirc_effic = '_null'
-        self._last_motions = '_null'
-        self._last_calc_orb = '_null'
-        self._last_orbval = '_null'
-        self._last_rotval = '_null'
+        self._last_motions = 'perR'
+        self._last_calc_orb = True
+        self._last_orbval = 1.0
+        self._last_rotval = 1.0
         return
 
 
