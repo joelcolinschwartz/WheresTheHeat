@@ -396,16 +396,18 @@ class parcel(object):
 #        return Porb,Prot,Wrot,adv_freq_peri
 
 
-    ### PICK UP HERE NEXT TIME, NEED TO CHANGE TO Wadvec AND SUCH. ###
     def _setup_radiate_recirc(self,tau_rad,epsilon):
         """Blah blah blah."""
+        can_set_check = (self.eccen == 0) and isinstance(self.Wrot,(float,int))
+        
         if epsilon != None:
-            if self.eccen == 0:
+            
+            if can_set_check:
                 recirc_effic = epsilon
                 
-                if self.adv_freq_peri == 0:
+                if self.Wadvec == 0:
                     if recirc_effic != 0:
-                        print('Constructor warning: atmosphere\'s advective freq. is 0, *recirc_effic* is not.')
+                        print('Constructor warning: atmosphere\'s advective frequency is 0, *recirc_effic* is not.')
                         print('    Your planet has no winds, but you want to transport heat.')
                         print('    I am setting radiative time to infinity, but your system is not self-consistent.')
                         print('')
@@ -414,23 +416,28 @@ class parcel(object):
                         radiate_time = 0
             
                 else:
-                    radiate_time = abs(recirc_effic/self.adv_freq_peri)
+                    radiate_time = abs(recirc_effic/self.Wadvec)
                     # Check for mismatched wind direction
-                    if abs(np.sign(recirc_effic)-np.sign(self.adv_freq_peri)) == 2:
-                        print('Constructor warning: atmosphere\'s advective freq. and *recirc_effic* have opposite signs.')
-                        print('    Your planet\'s winds flow one way, but you want them going the other way.')
+                    if abs(np.sign(recirc_effic)-np.sign(self.Wadvec)) == 2:
+                        print('Constructor warning: atmosphere\'s advective frequency and *recirc_effic* have opposite signs.')
+                        print('    Your planet\'s winds flow one way, but you want them flowing the other way.')
                         print('    Radiative time is defined, but your system is not self-consistent.')
                         print('')
 
             else:
-                print('Constructor ignore: you can only set *recirc_effic* for circular orbits.')
+                print('Constructor ignore: you can only set *recirc_effic* if the atmosphere\'s advective frequency is constant.')
+                if self.eccen != 0:
+                    print('    Your planet\'s orbit is not circular (orbital angular velocity varies).')
+                if not isinstance(self.Wrot,(float,int)):
+                    print('    Your planet\'s spin is not constant (rotational angular velocity varies).')
                 print('')
                 recirc_effic = np.nan
                 radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
             
         else:
             radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
-            recirc_effic = self.adv_freq_peri*radiate_time if self.eccen == 0 else np.nan
+            recirc_effic = self.Wadvec*radiate_time if can_set_check else np.nan
+        
         return radiate_time,recirc_effic
 
 
@@ -503,7 +510,7 @@ class parcel(object):
         
         vel_comp = self.kep_E.xyzVel(self.timeval)
         velocity = (np.sum(vel_comp**2.0,axis=1))**0.5
-        Worb = velocity/radius
+        Worb = velocity[0]/radius[0] if self.eccen == 0 else velocity/radius
         
         # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
         # So: alpha = 90 + arg_peri + tru_anom
@@ -546,6 +553,7 @@ class parcel(object):
         on_equator = (colat == (pi/2))
         return colat,longs,pixel_sq_rad,on_equator,NSIDE
     
+    ### PICK UP HERE TOO, THIS METHOD NEEDS EDITS WITH Wadvec ###
     def _calc_longs(self):
         """Blah blah blah."""
         # Planet coordinates: longitude = 0 always points at star.
@@ -707,10 +715,40 @@ class parcel(object):
             upd_Pr = self._has_param_changed(old_Prot,self.Prot)
             upd_Wadv = self._has_param_changed(old_Wadvec,self.Wadvec)
 
-
-
-
+        if self._check_multi_updater([eccen,radiate_time,recirc_effic,upd_Wadv]):
+            radt_loc,self._last_radiate_time = self._using_neworold_param(radiate_time,self._last_radiate_time)
+            rece_loc,self._last_recirc_effic = self._using_neworold_param(recirc_effic,self._last_recirc_effic)
+            self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radt_loc,rece_loc)
         
+        ### Atmosphere coordinates
+        if self._check_single_updater(NSIDE):
+            if not _makenew:
+                # For changing T resolution below
+                old_colat,old_longs,old_NSIDE = self.colat,self.longs,self.NSIDE
+            (self.colat,self.longs,self.pixel_sq_rad,
+             self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
+        if self._check_multi_updater([NSIDE,upd_Pr,upd_tv,upd_kE]):
+            self.longs_evolve,self._net_zero_long = self._calc_longs()
+            (self.illumination,self.visibility,
+             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+
+        ### Temperatures
+        if _makenew:
+            self.Tvals_evolve = np.array([self._initial_temperatures()])
+        elif self._check_multi_updater([NSIDE,upd_Po,upd_Pr,upd_Wadv,upd_tv,upd_kE]):
+            t_i = -1 if self._has_T_evolved else 0
+            want_temps = self.Tvals_evolve[t_i,:]
+            if self._check_single_updater(NSIDE):
+                want_temps = self._change_T_grid(want_temps,old_colat,old_longs,old_NSIDE)
+            self.Tvals_evolve = np.array([want_temps])
+
+        ### Evolve key
+        if self._check_multi_updater([radiate_time,recirc_effic,
+                                      upd_Po,upd_Pr,upd_Wadv,upd_tv,upd_kE]):
+            self._has_T_evolved = False
+
+        return
+
         
         #########
         
@@ -788,8 +826,6 @@ class parcel(object):
 #        if self._check_multi_updater([radiate_time,recirc_effic,
 #                                      upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
 #            self._has_T_evolved = False
-
-        return
     
     def _setup_lasts(self):
         """Blah blah blah."""
@@ -946,7 +982,8 @@ class parcel(object):
         print('Finished building {:}'.format(self.name))
         return
         
-
+    
+    ### PICK UP HERE NEXT TIME, NEED TO ACCOUNT FOR POSSIBLE ARRAY PARAMS ###
     def Info_Print(self):
         """Blah blah blah."""
         # Name
@@ -1106,6 +1143,7 @@ class parcel(object):
         return o_start,o_end
     
     
+    ### PICK UP HERE TOO, THIS METHOD WILL NEED EDITS NOW THAT Wadvec EXISTS ###
     def _diff_eq_tempvals(self,start_Tvals):
         """Something something else."""
         Tvals_evolve = np.zeros(self.longs_evolve.shape)
