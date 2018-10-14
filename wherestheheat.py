@@ -2,40 +2,18 @@
 """
 
 
-**Put your cleaned-up module docstring above this line.**
+
+**Put your cleaned-up module docstring up here.**
 
 
 
-
-New in # 6
+Legacy notes from Diana's version 6
 
 Created a subclass called fitter. It'll take results from parcel class, 
 stitch together the input time array with 1 period of the parcel time array and 
 calculate values for just that one period. It depends only on time, tau_rad and 
-wadv. It's quicker... and doesn't return any maps and crap. 
+wadv. It's quicker... and doesn't return any maps and crap.
 
-- I removed the unfinished countour shit. I can find them in #5 if i need to finish them and add them later.
-
-- You have to define your fitter object in an awkward way. see fitter.__init__()
-
-TO DO
------
-
-- make sure this works for negative wadv 
-
-        
-
-- include TESTs for most functions that are easy to run. 
-        maybe have a TEST file and in case of TEST = TRUE have the function call that file and 
-        draw what it does. 
-        
-        
--  NEED A GET ITEM METHOD SO WE CAN CHANGE VALUES IN AN OBJECT WITHOUT CHANGING THE WHOLE THING. 
-Right ow you can change a value but you have to do the conversions that __init__usually makes by hand. 
-Like change ours to seconds or things like that.
-"""
-
-"""
 This module contains 2 classes. 
 
 -parcel allows you to create a planet object and calculate the planetary 
@@ -125,41 +103,23 @@ def RecircEfficiency_Convert(epsilon,kind='infinite'):
 class parcel(object):
 
     """This class allows you to create a planet object and assign it appropriate orbital 
-    and planetary parameters.It uses class functions to calculate the planetary phase curve 
+    and planetary parameters. It uses class functions to calculate the planetary phase curve
     (emmitted flux) for an arbitrary number of orbits (default is 3). Use this class if you 
-    want to make figures. Use the fitter class for fitting.
-
-    Note
-    ----
-        Need to create a _getitem_ method. At the moment, i can create an obeject and give it properties, but 
-        i can't change one of the properties without defining it all over again. 
-        
-    Object Attributes --  see __init__ documentation 
-    ------------------------------------------------
-    (instance variables unique to each instance???)
+    want to make figures.
 
     Params that you might want to change 
     ------------------------------------
-        pmax
-                int; Number of orbital periods we will integrate for. Default  is 3.
+        numOrbs
+                Number of orbital periods we will integrate for. Default is 3.
                 Might need more for large values of the radiative time scale because you want the DE
-                to have time to reach a stable state.  
-        steps
-                int; number of steps PER 24 hours. Default is 300. This gives nice smooth
-                curves for making figures. For fitting, i find that 100 works fine but you can exeriment 
-                with that. 
+                to have time to reach a stable state.
+                
+        stepsPerOrb
+                int; number of time steps. Default is 3600.
             
         NSIDE
-                power of 2; healpix parameter that determines 
-                number of pixels that will subdivide the planet surface ;
-                NPIX = 12* NSIDE**2.
-                (ex: 192 pixels --> NPIX = 192, NSIDE = 4; 798 pixels --> NPIX = 798, NSIDE = 8)
-                Default is 8 but 4 is good enough and you should use 4 for fitting or it takes too long.
-                
-        wavelength
-                Values should be entered in micrometers. 
-                Used for inc/ emmitted flux calculations at this particular wavelength.
-                Default is 8.
+                healpix parameter for number of pixels on the planet surface.
+                NPIX = 12*(NSIDE**2) (ex: NPIX = 192 --> NSIDE = 4 ; NPIX = 798 --> NSIDE = 8)
                 
     """
 
@@ -212,9 +172,6 @@ class parcel(object):
         #     >>>: So, we add 180 deg to the input argument for consistency. DON'T GET CONFUSED! :-)
         return (ap+180.0) % 360.0
     
-
-    def _calc_orb_period(self):
-        return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
     
     def _parse_motion(self,motions,calc_orb,orbval,rotval):
         """Blah blah blah."""
@@ -243,7 +200,7 @@ class parcel(object):
                     print(ok)
                     calo_loc = self._last_calc_orb
                     break
-                calo_loc = True if s in ['T','True'] else (False if s in ['F','False'] else '_bad')
+                calo_loc = True if s[0] == 'T' else (False if s[0] == 'F' else '_bad')
             print('')
         
         # Check if *calc_orb* is False...
@@ -283,6 +240,22 @@ class parcel(object):
 
         return mots_loc,calo_loc,orbv_loc,rotv_loc
     
+    
+    def _has_param_changed(self,old,new):
+        """Blah blah blah."""
+        if isinstance(old,np.ndarray) or isinstance(new,np.ndarray):
+            test = '_no' if np.array_equal(old,new) else True
+        else:
+            test = True if old != new else '_no'
+        return test
+    
+    def _check_multi_updater(self,things):
+        """Blah blah blah."""
+        return any(x != '_no' for x in things)
+    
+    
+    def _calc_orb_period(self):
+        return 2.0*pi*(((self.smaxis**3.0)/(self.Mstar*self.grav_const))**0.5)
 
     def _setup_orb_motion(self,motions,calc_orb,orbval):
         """Blah blah blah."""
@@ -295,13 +268,121 @@ class parcel(object):
         elif mot_style == 'per':  # Converted from days to seconds
             Porb = orbval*self.sec_per_day
         return Porb
+
+
+    def _setup_time_array(self,_makenew):
+        """Blah blah blah."""
+        if _makenew:
+            t_start = 0
+            n_start = 0
+        else:
+            t_i = -1 if self._has_T_evolved else 0
+            t_start = self.timeval[t_i]
+            n_start = self.trackorbs[t_i]
+            
+        t_end = t_start + self.Porb*self.numOrbs
+        N = round(self.numOrbs*self.stepsPerOrb)
+        timeval = np.linspace(t_start,t_end,num=N+1)
+
+        n_end = n_start + self.numOrbs
+        trackorbs = np.linspace(n_start,n_end,num=N+1)
+        return timeval,trackorbs
+
+
+    def _setup_the_orbit(self):
+        """Ha ha ha."""
+        # The KeplerEllipse coordinates are: x == "North", y == "East", z == "away from observer".
+        # Our orbits are edge-on with inclination = 90 degrees, so orbits in x-z plane.
+        # Longitude of ascending node doesn't really matter, so we set Omega = 0 degrees (along +x axis).
+        # Argument of periastron measured from ascending node at 1st quarter phase (alpha = 90 deg).
+        # >>> SEE KEY NOTE IN _modify_arg_peri METHOD!!!
+        return pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
+
+    def _match_phase_new_orbit(self):
+        """Stuff and things."""
+        # Get old orbital phase
+        p_i = -1 if self._has_T_evolved else 0
+        the_phase = self.alpha[p_i]
+        
+        # Get new orbital phases
+        t_demo = np.linspace(0,self.Porb,(10*self.stepsPerOrb)+1)
+        _ig,tru_anom = self.kep_E.xyzPos(t_demo,getTA=True)
+        alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
+        
+        # Get new time of matched phase
+        tp_i = np.argmax(np.cos(np.radians(alpha - the_phase)))
+        t_match = t_demo[tp_i]
+        new_timeval = self.timeval - self.timeval[0] + t_match
+        
+        # Update orbit count if needed
+        n_i = -1 if self._should_add_orbtime else 0
+        n_start = self.trackorbs[n_i]
+        n_end = n_start + self.numOrbs
+        N = round(self.numOrbs*self.stepsPerOrb)
+        new_trackorbs = np.linspace(n_start,n_end,num=N+1)
+        return new_timeval,new_trackorbs
+    
+
+    def _calc_orbit_props(self):
+        """Stuff and things."""
+        radius = self.kep_E.radius(self.timeval)
+        orb_pos,tru_anom = self.kep_E.xyzPos(self.timeval,getTA=True)
+        
+        vel_comp = self.kep_E.xyzVel(self.timeval)
+        velocity = (np.sum(vel_comp**2.0,axis=1))**0.5
+        Worb = velocity[0]/radius[0] if self.eccen == 0 else velocity/radius
+        
+        # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
+        # So: alpha = 90 + arg_peri + tru_anom
+        alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
+        # Minus here because alpha = 0 at transit.
+        frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
+        
+        return radius,orb_pos,tru_anom,Worb,alpha,frac_litup
+    
+    def _find_conjunctions_nodes(self,kind):
+        """Blah blah blah."""
+        # Periastron happens at t = 0 because "tau" in KeplerEllipse defaults to zero.
+        # Conjunctions--transit and eclipse--are when orbit crosses y-z plane.
+        # Nodes--ascending and descending--would be when orbit crosses x-y plane (no method).
+        # ---> BUT xzCrossingTime gives correct times, I've tested! (Because y-coor varies a tiny bit?)
+        if kind == 'c':  # Conjunctions
+            prop_times = np.array(self.kep_E.yzCrossingTime())
+        elif kind == 'n':  # Nodes
+            prop_times = np.array(self.kep_E.xzCrossingTime())
+        
+        prop_pos,prop_tru_anom = self.kep_E.xyzPos(prop_times,getTA=True)
+        # Eclipse has +z, transit -z; Ascending node has +x, descending -x
+        coor = lambda k: 2 if k == 'c' else 0
+        i_plus = np.argmax(prop_pos[:,coor(kind)])
+        
+        plus_time = prop_times[i_plus]
+        plus_pos = prop_pos[i_plus]
+        plus_tru_anom = prop_tru_anom[i_plus]
+        minus_time = prop_times[1-i_plus]
+        minus_pos = prop_pos[1-i_plus]
+        minus_tru_anom = prop_tru_anom[1-i_plus]
+        
+        return plus_time,plus_pos,plus_tru_anom,minus_time,minus_pos,minus_tru_anom
     
     
+    def _reset_rot_times(self,_makenew):
+        """Blah blah blah."""
+        if _makenew:
+            spin_history,timeval_rot = 0,np.copy(self.timeval)
+        else:
+            t_i = -1 if self._has_T_evolved else 0
+            spin_history = self._net_zero_long[t_i]
+            timeval_rot = np.copy(self.timeval - self.timeval[0])
+        return spin_history,timeval_rot
+
     def _rotation_builder(self,rotval):
         """Blah blah blah."""
         t_norm = self.timeval_rot/self.Porb  # seconds to number of orbits
         
-        RV_built = rotval[0]  # Constant term
+        # Constant term (DOES THIS NEED A RELOOK?)
+        RV_built = np.atleast_1d(self._last_RV_built)[-1] if isinstance(rotval[0],str) else rotval[0]
+        
         for rv in rotval[1:]:
             kind = rv[0]
             rvA = np.asarray(rv[1:])
@@ -360,47 +441,20 @@ class parcel(object):
             Wrot = p_to_w(Prot,RV_built)
         
         Wadvec = Wrot - self.Worb
+        self._last_RV_built = RV_built
         return Prot,Wrot,Wadvec
     
     
-#    def _setup_motion(self,motions,calc_orb,orbval,rotval):
-#        """Blah blah blah."""
-#        mot_style,mot_qual = motions[:-1],motions[-1]
-#        w_to_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
-#        p_to_w = lambda p,r: 0 if p == np.inf else np.sign(r)*(2.0*pi/p)
-#
-#        if calc_orb:  # Calculated in seconds
-#            Porb = self._calc_orb_period()
-#
-#        if mot_style == 'freq':  # Converted from degrees/day to rad/second
-#            if not calc_orb:
-#                Porb = (2.0*pi/np.radians(orbval))*self.sec_per_day
-#
-#            if mot_qual == 'A':
-#                Wrot = np.radians(rotval)/self.sec_per_day
-#            elif mot_qual == 'R':
-#                Wrot = rotval*((2.0*pi/Porb)*self._ecc_factor)
-#            Prot = w_to_p(Wrot)
-#
-#        elif mot_style == 'per':  # Converted from days to seconds
-#            if not calc_orb:
-#                Porb = orbval*self.sec_per_day
-#
-#            if mot_qual == 'A':
-#                Prot = abs(rotval)*self.sec_per_day
-#            elif mot_qual == 'R':
-#                Prot = abs(rotval)*(Porb/self._ecc_factor)
-#            Wrot = p_to_w(Prot,rotval)
-#
-#        adv_freq_peri = Wrot - ((2.0*pi/Porb)*self._ecc_factor)
-#        return Porb,Prot,Wrot,adv_freq_peri
-
-
+    def _using_neworold_param(self,new,old):
+        """Blah blah blah."""
+        return (new,new) if self._check_single_updater(new) else (old,old)
+    
+    
     def _setup_radiate_recirc(self,tau_rad,epsilon):
         """Blah blah blah."""
         can_set_check = (self.eccen == 0) and isinstance(self.Wrot,(float,int))
         
-        if epsilon != None:
+        if (epsilon != None) and (not np.isnan(epsilon)):
             
             if can_set_check:
                 recirc_effic = epsilon
@@ -439,112 +493,7 @@ class parcel(object):
             recirc_effic = self.Wadvec*radiate_time if can_set_check else np.nan
         
         return radiate_time,recirc_effic
-
-
-    def _setup_time_array(self,_makenew):
-        """Blah blah blah."""
-        if _makenew:
-            t_start = 0
-            n_start = 0
-        else:
-            t_i = -1 if self._has_T_evolved else 0
-            t_start = self.timeval[t_i]
-            n_start = self.trackorbs[t_i]
-        
-        t_end = t_start + self.Porb*self.numOrbs
-        N = round(self.numOrbs*self.stepsPerOrb)
-        timeval = np.linspace(t_start,t_end,num=N+1)
-        
-        n_end = n_start + self.numOrbs
-        trackorbs = np.linspace(n_start,n_end,num=N+1)
-        return timeval,trackorbs
     
-    def _reset_rot_times(self,_makenew):
-        """Blah blah blah."""
-        if _makenew:
-            spin_history,timeval_rot = 0,np.copy(self.timeval)
-        else:
-            t_i = -1 if self._has_T_evolved else 0
-            spin_history = self._net_zero_long[t_i]
-            timeval_rot = np.copy(self.timeval - self.timeval[0])
-        return spin_history,timeval_rot
-    
-    
-    def _setup_the_orbit(self):
-        """Ha ha ha."""
-        # The KeplerEllipse coordinates are: x == "North", y == "East", z == "away from observer".
-        # Our orbits are edge-on with inclination = 90 degrees, so orbits in x-z plane.
-        # Longitude of ascending node doesn't really matter, so we set Omega = 0 degrees (along +x axis).
-        # Argument of periastron measured from ascending node at 1st quarter phase (alpha = 90 deg).
-        # >>> SEE KEY NOTE IN _modify_arg_peri METHOD!!!
-        return pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
-    
-    def _match_phase_new_orbit(self):
-        """Stuff and things."""
-        # Get old orbital phase
-        p_i = -1 if self._has_T_evolved else 0
-        the_phase = self.alpha[p_i]
-        
-        # Get new orbital phases
-        t_demo = np.linspace(0,self.Porb,(10*self.stepsPerOrb)+1)
-        _ig,tru_anom = self.kep_E.xyzPos(t_demo,getTA=True)
-        alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
-        
-        # Get new time of matched phase
-        tp_i = np.argmax(np.cos(np.radians(alpha - the_phase)))
-        t_match = t_demo[tp_i]
-        new_timeval = self.timeval - self.timeval[0] + t_match
-        
-        # Update orbit count if needed
-        n_i = -1 if self._should_add_orbtime else 0
-        n_start = self.trackorbs[n_i]
-        n_end = n_start + self.numOrbs
-        N = round(self.numOrbs*self.stepsPerOrb)
-        new_trackorbs = np.linspace(n_start,n_end,num=N+1)
-        return new_timeval,new_trackorbs
-    
-    def _calc_orbit_props(self):
-        """Stuff and things."""
-        radius = self.kep_E.radius(self.timeval)
-        orb_pos,tru_anom = self.kep_E.xyzPos(self.timeval,getTA=True)
-        
-        vel_comp = self.kep_E.xyzVel(self.timeval)
-        velocity = (np.sum(vel_comp**2.0,axis=1))**0.5
-        Worb = velocity[0]/radius[0] if self.eccen == 0 else velocity/radius
-        
-        # Want alpha(transit) = 0 and alpha(periapsis) = 90 + arg_peri.
-        # So: alpha = 90 + arg_peri + tru_anom
-        alpha = (90.0 + self.arg_peri + np.degrees(np.array(tru_anom))) % 360.0
-        # Minus here because alpha = 0 at transit.
-        frac_litup = 0.5*(1.0 - np.cos(np.radians(alpha)))
-        
-        return radius,orb_pos,tru_anom,Worb,alpha,frac_litup
-    
-    def _find_conjunctions_nodes(self,kind):
-        """Blah blah blah."""
-        # Periastron happens at t = 0 because "tau" in KeplerEllipse defaults to zero.
-        # Conjunctions--transit and eclipse--are when orbit crosses y-z plane.
-        # Nodes--ascending and descending--would be when orbit crosses x-y plane (no method).
-        # ---> BUT xzCrossingTime gives correct times, I've tested! (Because y-coor varies a tiny bit?)
-        if kind == 'c':  # Conjunctions
-            prop_times = np.array(self.kep_E.yzCrossingTime())
-        elif kind == 'n':  # Nodes
-            prop_times = np.array(self.kep_E.xzCrossingTime())
-        
-        prop_pos,prop_tru_anom = self.kep_E.xyzPos(prop_times,getTA=True)
-        # Eclipse has +z, transit -z; Ascending node has +x, descending -x
-        coor = lambda k: 2 if k == 'c' else 0
-        i_plus = np.argmax(prop_pos[:,coor(kind)])
-        
-        plus_time = prop_times[i_plus]
-        plus_pos = prop_pos[i_plus]
-        plus_tru_anom = prop_tru_anom[i_plus]
-        minus_time = prop_times[1-i_plus]
-        minus_pos = prop_pos[1-i_plus]
-        minus_tru_anom = prop_tru_anom[1-i_plus]
-        
-        return plus_time,plus_pos,plus_tru_anom,minus_time,minus_pos,minus_tru_anom
-
     
     def _setup_colatlong(self,NSIDE):
         """Blah blah blah."""
@@ -553,13 +502,14 @@ class parcel(object):
         on_equator = (colat == (pi/2))
         return colat,longs,pixel_sq_rad,on_equator,NSIDE
     
-    ### PICK UP HERE TOO, THIS METHOD NEEDS EDITS WITH Wadvec ###
     def _calc_longs(self):
         """Blah blah blah."""
         # Planet coordinates: longitude = 0 always points at star.
         # Longitude of gas parcels change throughout orbit. Colatitude stays the same.
         # So: new_longs = orig_longs +- Rotation effect (East/West) - Orbit effect (West)
-        net_long_change = (self.Wrot*self.timeval_rot) - self.tru_anom + self.spin_history
+        delta_times = np.ediff1d(self.timeval_rot,to_begin=0)
+        net_long_change = np.cumsum(self.Wadvec*delta_times) + self.spin_history
+        ## OLD VERSION WAS: net_long_change = (self.Wrot*self.timeval_rot) - self.tru_anom + self.spin_history
         new_longs = self.longs[np.newaxis,:] + net_long_change[:,np.newaxis]
         longs_evolve = new_longs % (2.0*pi)
         net_zero_long = net_long_change % (2.0*pi)  # For rotating maps in Orth_Mapper
@@ -587,7 +537,7 @@ class parcel(object):
         the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
         the_high_case = (np.sin(self.colat)/pi)**0.25
         if np.isnan(self.recirc_effic):
-            infinite_eps = self.adv_freq_peri*self.radiate_time
+            infinite_eps = np.mean(self.Wadvec)*self.radiate_time  # EDIT???
         else:
             infinite_eps = self.recirc_effic
         unity_eps = RecircEfficiency_Convert(infinite_eps)  # Get 0-1 epsilon
@@ -618,18 +568,6 @@ class parcel(object):
         """Blah blah blah."""
         return ['_no']*n
     
-    def _check_multi_updater(self,things):
-        """Blah blah blah."""
-        return any(x != '_no' for x in things)
-    
-    def _using_neworold_param(self,new,old):
-        """Blah blah blah."""
-        return (new,new) if self._check_single_updater(new) else (old,old)
-    
-    def _has_param_changed(self,old,new):
-        """Blah blah blah."""
-        return True if old != new else '_no'
-    
     
     def _parameter_pipeline(self,Teff,Rstar,Mstar,
                             Rplanet,smaxis,eccen,arg_peri,bondA,
@@ -653,7 +591,7 @@ class parcel(object):
         if self._check_multi_updater([Teff,Rstar,smaxis,eccen,bondA]):
             self.Tirrad = self._calc_T_irradiation()
         
-        ### We add 180 deg to the input "arg_peri", see this method. DON'T GET CONFUSED! :-)
+        ### We add 180 deg to the input *arg_peri*. See the method here and DON'T GET CONFUSED! :-)
         if self._check_single_updater(arg_peri):
             self.arg_peri = self._modify_arg_peri(arg_peri)
         
@@ -676,8 +614,6 @@ class parcel(object):
             old_Porb = '_null' if _makenew else self.Porb
             self.Porb = self._setup_orb_motion(mots_loc,calo_loc,orbv_loc)
             upd_Po = self._has_param_changed(old_Porb,self.Porb)
-        else:
-            old_Porb = self.Porb
 
         if self._check_single_updater(stepsPerOrb):
             self.stepsPerOrb = stepsPerOrb
@@ -711,7 +647,7 @@ class parcel(object):
             self._should_add_rottime = False
         
             old_Prot,old_Wadvec = ('_null','_null') if _makenew else (self.Prot,self.Wadvec)
-            self.Prot,self.Wrot,self.Wadvec = self._setup_rot_motion(motions,rotval)
+            self.Prot,self.Wrot,self.Wadvec = self._setup_rot_motion(mots_loc,rotv_loc)
             upd_Pr = self._has_param_changed(old_Prot,self.Prot)
             upd_Wadv = self._has_param_changed(old_Wadvec,self.Wadvec)
 
@@ -748,84 +684,7 @@ class parcel(object):
             self._has_T_evolved = False
 
         return
-
-        
-        #########
-        
-#        mcor_check = self._check_multi_updater([motions,calc_orb,orbval,rotval])
-#        if mcor_check or self._check_multi_updater([Mstar,smaxis,eccen]):
-#            (mots_loc,calo_loc,orbv_loc,rotv_loc,
-#             self._last_motions,self._last_calc_orb,
-#             self._last_orbval,self._last_rotval) = self._parse_motion(mcor_check,motions,calc_orb,orbval,rotval)
-#            if _makenew:
-#                old_Porb,old_Prot,old_adv_freq_peri = '_null','_null','_null'
-#            else:
-#                old_Porb,old_Prot,old_adv_freq_peri = self.Porb,self.Prot,self.adv_freq_peri
-#            self.Porb,self.Prot,self.Wrot,self.adv_freq_peri = self._setup_motion(mots_loc,calo_loc,orbv_loc,rotv_loc)
-#            upd_Po = self._has_param_changed(old_Porb,self.Porb)
-#            upd_Pr = self._has_param_changed(old_Prot,self.Prot)
-#            upd_afp = self._has_param_changed(old_adv_freq_peri,self.adv_freq_peri)
-#
-#        if self._check_multi_updater([eccen,radiate_time,recirc_effic,upd_afp]):
-#            radt_loc,self._last_radiate_time = self._using_neworold_param(radiate_time,self._last_radiate_time)
-#            rece_loc,self._last_recirc_effic = self._using_neworold_param(recirc_effic,self._last_recirc_effic)
-#            self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(radt_loc,rece_loc)
-#
-#        ### Time
-#        if self._check_single_updater(stepsPerOrb):
-#            self.stepsPerOrb = stepsPerOrb
-#        if self._check_single_updater(numOrbs):
-#            self.numOrbs = numOrbs
-#        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po]):
-#            self.timeval,upd_tv = self._setup_time_array(_makenew),True
-#            self._should_add_orbtime = False
-#        if self._check_multi_updater([stepsPerOrb,numOrbs,upd_Po,upd_Pr]):
-#            self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
-#            self._should_add_rottime = False
-#
-#        ### Orbital Stuff
-#        if self._check_multi_updater([smaxis,eccen,arg_peri,upd_Po]):
-#            self.kep_E,upd_kE = self._setup_the_orbit(),True
-#            if not _makenew:
-#                self.timeval,upd_tv = self._match_phase_new_orbit(),True
-#
-#        if self._check_multi_updater([upd_tv,upd_kE]):
-#            (self.radius,self.orb_pos,
-#             self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
-#        if self._check_single_updater(upd_kE):
-#            (self.ecl_time,self.ecl_pos,self.ecl_tru_anom,
-#             self.trans_time,self.trans_pos,self.trans_tru_anom) = self._find_conjunctions_nodes('c')
-#            (self.ascend_time,self.ascend_pos,self.ascend_tru_anom,
-#             self.descend_time,self.descend_pos,self.descend_tru_anom) = self._find_conjunctions_nodes('n')
-#        if self._check_single_updater(upd_Po):
-#            self.periast_time,self.apast_time = 0,0.5*self.Porb
-#
-#        ### Atmosphere coordinates
-#        if self._check_single_updater(NSIDE):
-#            if not _makenew:
-#                # For changing T resolution below
-#                old_colat,old_longs,old_NSIDE = self.colat,self.longs,self.NSIDE
-#            (self.colat,self.longs,self.pixel_sq_rad,
-#             self._on_equator,self.NSIDE) = self._setup_colatlong(NSIDE)
-#        if self._check_multi_updater([NSIDE,upd_Pr,upd_tv,upd_kE]):
-#            self.longs_evolve,self._net_zero_long = self._calc_longs()
-#            (self.illumination,self.visibility,
-#             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
-#
-#        ### Temperatures
-#        if _makenew:
-#            self.Tvals_evolve = np.array([self._initial_temperatures()])
-#        elif self._check_multi_updater([NSIDE,upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
-#            t_i = -1 if self._has_T_evolved else 0
-#            want_temps = self.Tvals_evolve[t_i,:]
-#            if self._check_single_updater(NSIDE):
-#                want_temps = self._change_T_grid(want_temps,old_colat,old_longs,old_NSIDE)
-#            self.Tvals_evolve = np.array([want_temps])
-#
-#        ### Evolve key
-#        if self._check_multi_updater([radiate_time,recirc_effic,
-#                                      upd_Po,upd_Pr,upd_afp,upd_tv,upd_kE]):
-#            self._has_T_evolved = False
+    
     
     def _setup_lasts(self):
         """Blah blah blah."""
@@ -835,6 +694,7 @@ class parcel(object):
         self._last_calc_orb = True
         self._last_orbval = 1.0
         self._last_rotval = 1.0
+        self._last_RV_built = 1.0
         return
 
 
@@ -844,15 +704,7 @@ class parcel(object):
                  radiate_time=12.0,recirc_effic=None,
                  numOrbs=3,stepsPerOrb=3600,NSIDE=8):
         
-        """The __init__ method allows to set attributes unique to each parcel instance.
-        It takes some parameters in the units specified in the docstring. Some are 
-        converted to SI units, some are calculated from a few parameters. It has some default
-        values that dont have any particular meaning. 
-        
-        
-        Note
-        ----
-        Some parameters are not used in calculations. They're just there is case i need them for something in the future. 
+        """Some initial constructor stuff.
 
         Parameters
         ----------
@@ -878,92 +730,53 @@ class parcel(object):
             eccentricity
         
         argp (float):
-            Argument at periastron in degrees - angle betwen periastron and transit in degrees 
+            Argument at periastron in degrees - angle betwen ascending node and periastron and in degrees
 
-        A : Bond albedo (set to 0)
-            Model doesn not handle reflected light right now. Setting albedo to a different value 
-            will have no effect than to reduce incoming flux by a certain fraction.
+        A : Bond albedo
+            Setting albedo to a different value reduces incoming flux by a certain fraction.
         
         Porb (float): orbital period in days 
-            will be calculated from Kepler's laws if Porb param set to -1    
+            can be calculated from Kepler's laws
             
-            
-        P : 
-            Rotational period of the gas around the planet; calculated by self.Prot(). 
-            
+        Prot :
+            Rotational period of the gas around the planet.
   
-        wadv : PARAM WE WOULD FIT FOR
-            
-            multiple of wmax (ex: 2 or 0.5)
-            wrot = (2*Pi/P) is chosen to match wmax (orbital angular velocity at periastron );
-            wadv is expressed as a multiple of wmax, with ( - ) meaning a rotation in the oposite direction.
-
-            PROBLEM/ REMARK: 
-                in the circular case: if wadv = 1 it means the gas isnt moving wrt the substellar point. 
-                Every parcel of gas has the same temperature it started with always 
-                (might heat up a bit and stay there)
-                
-                if wadv = 2 it means that it takes 1 rotaions of the planet for the gas to leave the Substellar point 
-                and come back (go through all its temperatures)
-                
-                in the eccentric case: this is more complicated. If wadv = 1 it can be interpreted as 
-                the substellar point and the gas being stationary wrt each other at periastron.
+        Wadvec :
+            Net rate of atmosphere circulation.
  
-        T0 : not used in calculations
-            Initial temperature of gas at substellar point at periastron. 
+        T0 :
+            Initial temperature of gas at substellar point at periastron.
+
+        tau_rad (and epsilon):
+            epsilon = tau_rad * Wadvec
+
+        stepsPerOrb :
+            time steps per orbit of planet
             
-            Teff*(1-A)**(0.25)*(self.Rstar/(self.a*(1-self.e)))**(0.5) 
-
-        tau_rad (and epsilon): PARAM WE WOULD FIT FOR
-            
-            epsilon = tau_rad * wadv
-
-            For eccentric orbit, value for tau_rad should be entered in hours and epsilon
-            should be left blank. 
-
-            For a circular orbit, epsilon (efficiency parameter) and wadv should be provided 
-            and tau_rad left blank.              
-
+        numOrbs (int) :
+            Number of orbital periods we will integrate for.
         
-        rotationsPerOrbit : np.ceil(max(self.Porb/self.Prot),1)
+        NSIDE :
+            healpix number of pixels for the planet surface
+            NPIX = 12*(NSIDE**2) (ex: 192 pixels --> NSIDE = 4; 798 pixels --> NSIDE = 8)
             
-            used for giving the default time lenght for DE
+        Quantities attached to instance
+        -------------------------------
         
-        rotationsPerDay : int(self.Prot/self.sec_per_day)
-            
-            used for giving the default precision for DE
-            
-        pmax (int)
-                Number of orbital periods we will integrate for.
-        
-        steps (int)
-                number of steps PER 24 hours.
-                
-
-        NSIDE
-                power of 2; healpix parameter that determines 
-                number of pixels that will subdivide the planet surface ;
-                NPIX = 12* NSIDE**2.
-                (ex: 192 pixels --> NSIDE = 4; 798 pixels --> NSIDE = 8)
-                
-                
-        Precalculated quantities that get attached to the object
-        --------------------------------------------------------
-        
-        t -time array (1D)
+        timeval,timeval_rot -time array (1D)
                 
         radius -orbital separation array
         
-        ang_vel - orbital angular velocity array
+        Worb - orbital angular velocity array
         
         alpha - phase angle array
         
-        f - illuminted fraction array
+        frac_lit - illuminted fraction array
         
-        phis, thetas - initial pixel coordinates. starting point for each gas parcel
-        on the planet
+        colat,longs - initial pixel coordinates for gas
         
         """
+        
         print('Constructing model ... ',end='')
         
         self.name = name
@@ -983,7 +796,6 @@ class parcel(object):
         return
         
     
-    ### PICK UP HERE NEXT TIME, NEED TO ACCOUNT FOR POSSIBLE ARRAY PARAMS ###
     def Info_Print(self):
         """Blah blah blah."""
         # Name
@@ -1007,15 +819,30 @@ class parcel(object):
         # Porb, Prot, eccen, argp
         form_cols = '{:^14} {:^14} {:^14} {:^24}'
         print(form_cols.format('P_orb (days)','P_rot (days)','Eccentricity','Arg. periastron (deg)'))
-        form_cols = '{:^14.2f} {:^14.2f} {:^14.3f} {:^24.1f}'
-        print(form_cols.format(self.Porb/self.sec_per_day,self.Prot/self.sec_per_day,self.eccen,self.arg_peri))
+        if isinstance(self.Prot,(float,int)):
+            disp_prot = self.Prot/self.sec_per_day
+            slot_pr = '{:^14.2f}'
+        else:
+            low_pr_d,high_pr_d = np.amin(self.Prot)/self.sec_per_day,np.amax(self.Prot)/self.sec_per_day
+            disp_prot = '{:.2f} - {:.2f}'.format(high_pr_d,low_pr_d)
+            slot_pr = '{:^14}'
+        form_cols = '{:^14.2f} '+slot_pr+' {:^14.3f} {:^24.1f}'
+        print(form_cols.format(self.Porb/self.sec_per_day,disp_prot,self.eccen,self.arg_peri))
         print('')
         
-        # adv_freq_peri, radiate_time, recirc_effic
+        # Wadvec, radiate_time, recirc_effic
         form_cols = '{:^26} {:^22} {:^10}'
-        print(form_cols.format('Advective freq. (rad/hr)','Radiative time (hrs)','Epsilon'))
-        form_cols = '{:^26.3f} {:^22.3f} {:^10.3f}'
-        print(form_cols.format(self.adv_freq_peri*self.sec_per_hour,self.radiate_time/self.sec_per_hour,self.recirc_effic))
+        print(form_cols.format('Advective freq. (deg/hr)','Radiative time (hrs)','Epsilon'))
+        low_wa_ds = np.degrees(np.amin(self.Wadvec))*self.sec_per_hour
+        high_wa_ds = np.degrees(np.amax(self.Wadvec))*self.sec_per_hour
+        if low_wa_ds == high_wa_ds:
+            disp_wadv = low_wa_ds
+            slot_wa = '{:^26.3f}'
+        else:
+            disp_wadv = '{:.3f} - {:.3f}'.format(low_wa_ds,high_wa_ds)
+            slot_wa = '{:^26}'
+        form_cols = slot_wa+' {:^22.3f} {:^10.3f}'
+        print(form_cols.format(disp_wadv,self.radiate_time/self.sec_per_hour,self.recirc_effic))
         
         return
 
@@ -1125,38 +952,76 @@ class parcel(object):
         # Orbital
         if self._should_add_orbtime:
             self.timeval += self.Porb*self.numOrbs
-        
-            (self.radius,self.orb_pos,
-             self.tru_anom,self.alpha,self.frac_litup) = self._calc_orbit_props()
-
-            self.longs_evolve,self._net_zero_long = self._calc_longs()
-             
-            (self.illumination,self.visibility,
-             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
-        
-        o_start,o_end = self.timeval[[0,-1]]/self.Porb
+            self.trackorbs += self.numOrbs
+            
+            (self.radius,self.orb_pos,self.tru_anom,
+             self.Worb,self.alpha,self.frac_litup) = self._calc_orbit_props()
         
         # Rotational
+        vary_check = isinstance(self._last_rotval,list)
+        keep_varying,back_to_zero = '_null','_null'
+        
         if self._should_add_rottime:
-            self.timeval_rot += self.Porb*self.numOrbs
+            
+            if vary_check:
+                print('You are varying the rotation rate of your planet, with *motions* = {:}.'.format(self._last_motions))
+                print('    The current *rotval* is {:}.'.format(self._last_rotval))
+                print('    Or, you can hold the rotation rate at its last evolved value.')
+                while keep_varying not in [True,False]:
+                    q = input('    Do you want to keep varying the spin? Default is Yes. [Y/N]: ').capitalize()
+                    keep_varying = True if q == '' or q[0] == 'Y' else (False if q[0] == 'N' else '_null')
+                print('')
+                
+                if keep_varying and any(r[0] == 'time' for r in self._last_rotval[1:]):
+                    print('Your custom *rotval* has explicit time components.')
+                    print('    It could give bad rotation rates if your planet evolves long enough.')
+                    while back_to_zero not in [True,False]:
+                        b = input('    Do you want to reset these components to t=0? Default is No. [N/Y]: ').capitalize()
+                        back_to_zero = False if b == '' or b[0] == 'N' else (True if b[0] == 'Y' else '_null')
+                    print('')
+                elif not keep_varying:
+                    RV_built = self._rotation_builder(self._last_rotval)
+                    self._last_rotval = RV_built[-1]  # Change gets passed below
+            
+            if back_to_zero == True:
+                self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew=False)
+            else:
+                # Probably don't need to check _has_T_evolved: you shouldn't be here unless it has.
+                # But I'm leaving it for now, just in case. Can't hurt. :-)
+                t_i = -1 if self._has_T_evolved else 0
+                self.spin_history = self._net_zero_long[t_i]
+                self.timeval_rot += self.Porb*self.numOrbs
 
-        return o_start,o_end
-    
-    
-    ### PICK UP HERE TOO, THIS METHOD WILL NEED EDITS NOW THAT Wadvec EXISTS ###
+        # Advective
+        if self._should_add_orbtime or self._should_add_rottime:
+            self.Prot,self.Wrot,self.Wadvec = self._setup_rot_motion(self._last_motions,
+                                                                     self._last_rotval)
+            
+            self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(self._last_radiate_time,
+                                                                             self._last_recirc_effic)
+
+            self.longs_evolve,self._net_zero_long = self._calc_longs()
+            
+            (self.illumination,self.visibility,
+             self.SSP_long,self.SOP_long) = self._calc_vis_illum()
+
+        return
+
+
     def _diff_eq_tempvals(self,start_Tvals):
         """Something something else."""
         Tvals_evolve = np.zeros(self.longs_evolve.shape)
         Tvals_evolve[0,:] += start_Tvals
         
-        if self.eccen == 0:
-            if (abs(self.recirc_effic) <= 10**(-4)):
+        # Check for circular orbit + constant rotational frequency
+        if isinstance(self.Wadvec,(float,int)):
+            if abs(self.recirc_effic) <= 10**(-4):
                 Tvals_evolve = ((1.0-self.bondA)*self.illumination)**(0.25)
             else:
-                # Here advective frequency is constant- sign spcifies direction atmosphere rotates.
-                the_sign = -1.0 if self.adv_freq_peri < 0 else 1.0
-                delta_longs = (self.longs_evolve[1:,:] - self.longs_evolve[:-1,:]) % (the_sign*2.0*pi)
-                
+                # Advective frequency is constant so sign spcifies direction atmosphere rotates.
+                the_sign = -1.0 if self.Wadvec < 0 else 1.0
+                delta_longs = np.diff(self.longs_evolve,n=1,axis=0) % (the_sign*2.0*pi)
+
                 for i in range(1,len(self.timeval)):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
                     delta_Tvals = (1.0/self.recirc_effic)*(self.illumination[i-1,:] - (Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
@@ -1164,14 +1029,17 @@ class parcel(object):
     
         else:
             # Normalized stellar flux
-            scaled_illum = self.illumination*((self.smaxis*(1-self.eccen)/self.radius[:,np.newaxis])**2)
+            if self.eccen != 0:
+                scaled_illum = self.illumination*((self.smaxis*(1-self.eccen)/self.radius[:,np.newaxis])**2)
+            else:
+                scaled_illum = self.illumination  # Another circular orbit
             
             # Eccentric DE uses t_tilda = t/radiate_time
             if self.radiate_time <= 10**(-4):
                 Tvals_evolve = ((1.0-self.bondA)*scaled_illum)**(0.25)
             else:
-                delta_radtime = (self.timeval[1:] - self.timeval[:-1])/self.radiate_time
-                
+                delta_radtime = np.ediff1d(self.timeval)/self.radiate_time
+
                 for i in range(1,len(self.timeval)):
                     delta_Tvals = (scaled_illum[i-1,:] - (Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
                     Tvals_evolve[i,:] = Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
@@ -1184,7 +1052,8 @@ class parcel(object):
         t_i,s = (-1,'Re-heating') if self._has_T_evolved else (0,'Heating')
         start_Tvals = self.Tvals_evolve[t_i,:]
         
-        o_start,o_end = self._update_params_before_evolve()
+        self._update_params_before_evolve()
+        o_start,o_end = self.trackorbs[[0,-1]]
         print(s+' {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,o_start,o_end),end='')
 
         self.Tvals_evolve = self._diff_eq_tempvals(start_Tvals)
@@ -1324,9 +1193,9 @@ class parcel(object):
         # Then again, if the numbers in *rot* have > 1 decimal place,
         # those warnings can disappear! It's something weird in healpy's
         # projector.py and projaxes.py. I'm suppressing both warnings for now.
-#        with warnings.catch_warnings():
-#            warnings.filterwarnings('ignore',message='invalid value encountered in greater')
-#            hp.visufunc.graticule(local=True,verbose=True)
+        #### with warnings.catch_warnings():
+        ####     warnings.filterwarnings('ignore',message='invalid value encountered in greater')
+        ####     hp.visufunc.graticule(local=True,verbose=True)
 
         if relative_periast:
             descrip = r' $%.2f^{\circ}$ from periastron' % (np.degrees(self.tru_anom[i_want]) % 360)
