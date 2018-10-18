@@ -72,7 +72,7 @@ orbloc_styles_ = {'transit':['b','^',150,'Transit'],
                   'descend':['m','>',150,'Descending Node'],
                   'periast':['r','D',100,'Periastron'],
                   'apast':['c','s',100,'Apastron'],
-                  'phase':[[0.8,0.8,0.8],'o',150,'Planet Phase'],
+                  'phase':['0.8','o',150,'Planet Phase'],
                   'star':['y',['o','--'],300,'Star']}
 
 
@@ -509,7 +509,7 @@ class parcel(object):
         # So: new_longs = orig_longs +- Rotation effect (East/West) - Orbit effect (West)
         delta_times = np.ediff1d(self.timeval_rot,to_begin=0)
         net_long_change = np.cumsum(self.Wadvec*delta_times) + self.spin_history
-        ## OLD VERSION WAS: net_long_change = (self.Wrot*self.timeval_rot) - self.tru_anom + self.spin_history
+        ## OLD VERSION: net_long_change = (self.Wrot*self.timeval_rot) - self.tru_anom + self.spin_history
         new_longs = self.longs[np.newaxis,:] + net_long_change[:,np.newaxis]
         longs_evolve = new_longs % (2.0*pi)
         net_zero_long = net_long_change % (2.0*pi)  # For rotating maps in Orth_Mapper
@@ -843,6 +843,7 @@ class parcel(object):
             slot_wa = '{:^26}'
         form_cols = slot_wa+' {:^22.3f} {:^10.3f}'
         print(form_cols.format(disp_wadv,self.radiate_time/self.sec_per_hour,self.recirc_effic))
+        print('')
         
         return
 
@@ -876,7 +877,8 @@ class parcel(object):
     def _orbit_scatter(self,axorb,pos,ol_sty):
         au_pos = self._orbit_auscale(pos)
         color,mark,ize,lab = ol_sty
-        axorb.scatter(au_pos[0],au_pos[2],c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
+        # Brackets on color so e.g. '0.8' is parsed OK.
+        axorb.scatter(au_pos[0],au_pos[2],c=[color],marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
         return
     
     def _orbit_window(self,axorb,au_pos):
@@ -1067,10 +1069,26 @@ class parcel(object):
     
     ### Temperature Map
     
+    def _can_make_the_fig(self,which,_extra):
+        """Something something else."""
+        quit_out = False
+        if not self._has_T_evolved and not _extra:
+            print('Data Flag: You have not baked '+self.name+' since mixing in some new parameters.')
+            if self.Tvals_evolve.shape[0] == self.timeval.size:
+                print('    I am using the calculated temperatures from before, but they may not be accurate now.')
+            else:
+                quit_out = True
+                print('    There are no calculated temperatures right now, so you can\'t run *'+which+'* yet.')
+            print('    Please run *Evolve_AtmoTemps* and then things should be good. :-)')
+            print('')
+        return quit_out
+    
+    ## PICK BACK UP HERE!!!
     def _final_orbit_index(self):
         """Something something else."""
         # +1 so initial phase is not included twice.
-        return int(round(self.stepsPerOrb*(self.numOrbs-1))) + 1
+        f_o_i = int(round(self.stepsPerOrb*(self.numOrbs-1))) + 1
+        return max(f_o_i,0)
     
     def _orth_bounds(self,force_contrast,heat_map):
         """Something something else."""
@@ -1150,6 +1168,10 @@ class parcel(object):
     def Orth_Mapper(self,phase,relative_periast=False,force_contrast=False,far_side=False,
                     _combo=False,_axuse=None,_cax=None,_i_phase=None):
         """Something something else."""
+        quit_out = self._can_make_the_fig('Orth_Mapper',_combo)
+        if quit_out:
+            return
+        
         if _i_phase == None:
             fin_orb_start = self._final_orbit_index()
             # Find closest position to phase, given start position.
@@ -1233,6 +1255,10 @@ class parcel(object):
 
     def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_contrast=False):
         """Blah blah blah."""
+        quit_out = self._can_make_the_fig('Combo_OrbitOrth',False)
+        if quit_out:
+            return
+        
         fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
         
         # Return phase position before drawing orbit
@@ -1332,8 +1358,13 @@ class parcel(object):
     
 
     def Observed_Flux(self,wave_band=False,a_microns=6.5,b_microns=9.5,
-                      kind='obs',run_integrals=False,bolo=False,separate=False):
+                      kind='obs',run_integrals=False,bolo=False,separate=False,_extra=False):
         """Blah blah blah."""
+        quit_out = self._can_make_the_fig('Observed_Flux',_extra)
+        if quit_out:
+            null = np.zeros(self.timeval.shape)
+            return (null,null) if separate else null
+        
         if wave_band:
             lower_microns,upper_microns = self._waveband_to_lowup(a_microns,b_microns)
         else:
@@ -1350,6 +1381,7 @@ class parcel(object):
             planet_vis = 1.0
 
         planet_Treal = self.Tvals_evolve*self.Tirrad
+
         if bolo:
             star_bb = self._blackbody_bolometric(self.Teff)
             planet_bb = self._blackbody_bolometric(planet_Treal)
@@ -1409,37 +1441,34 @@ class parcel(object):
         i_start = i_end - int(self.stepsPerOrb)
         i_end += 1  # To have initial phase repeated
         return i_start,i_end
-    
-    def _relative_time(self,want_t,t_start):
-        """Blah blah blah."""
-        return (want_t - t_start)/self.Porb
-    
+
     def _light_times(self,i_start,i_end):
         """Blah blah blah."""
         t_act = self.timeval[i_start:i_end]
         t_start,t_end = t_act[0],t_act[-1]
-        o_start = np.floor(t_start/self.Porb)  # Orbit light curve starts (0 based)
         
-        t_rel = self._relative_time(t_act,t_start)
+        o_start = self.trackorbs[i_start]
+        t_rel = self.trackorbs[i_start:i_end] - o_start
         return t_act,t_start,t_end,o_start,t_rel
     
     def _prop_plotter(self,axlig,t_a,t_start,f_terp,ol_sty,y_mark,_combo,_inc):
         """Blah blah blah."""
         f_v = f_terp(t_a)
-        t_r = self._relative_time(t_a,t_start)
+        t_r = (t_a - t_start)/self.Porb
         
         color = ol_sty[0]
         axlig.plot([t_r,t_r],[0,f_v],c=color,ls='--',zorder=2)
         if _combo:
             mark,ize = ol_sty[1:3]
             lab = ol_sty[-1] if _inc else '_null'
-            axlig.scatter(t_r,y_mark,c=color,marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
+            # Brackets on color so e.g. '0.8' is parsed OK.
+            axlig.scatter(t_r,y_mark,c=[color],marker=mark,s=ize,edgecolors='k',zorder=2,label=lab)
         return
     
     def _prop_plotcheck(self,axlig,prop_time,o_start,t_start,t_end,f_terp,
                         ol_sty,y_mark,_combo):
         """Blah blah blah."""
-        t_a = prop_time+(o_start*self.Porb)
+        t_a = prop_time+(np.floor(o_start)*self.Porb)
         _inc = True  # For putting marker in legend
         while t_a <= t_end:
             if t_a >= t_start:
@@ -1458,9 +1487,13 @@ class parcel(object):
         return
 
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
-                        run_integrals=False,bolo=False,begins='periast',
+                        run_integrals=False,bolo=False,begins='periast',multi_orbit=False,
                         _combo=False,_axuse=None,_phase=None,_relperi=None):
         """Blah blah blah."""
+        quit_out = self._can_make_the_fig('Draw_LightCurve',_combo)
+        if quit_out:
+            return
+        
         if begins not in self._accept_begins:
             print('Draw_LightCurve error: strings for *begins* are')
             print(self._accept_begins)
@@ -1468,7 +1501,8 @@ class parcel(object):
             return
         
         lightcurve_flux = self.Observed_Flux(wave_band,a_microns,b_microns,
-                                             'obs',run_integrals,bolo,False)
+                                             'obs',run_integrals,bolo,False,
+                                             _extra=True)
         if _combo:
             axlig = _axuse
         else:
@@ -1489,6 +1523,12 @@ class parcel(object):
             _time_phase = self.timeval[_i_phase] % self.Porb
 
         axlig.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
+        if multi_orbit:
+            m_i = np.array([i_start,i_end]) - self.stepsPerOrb
+            while m_i[0] >= 0:
+                lcf_mul = lightcurve_flux[m_i[0]:m_i[1]]
+                axlig.plot(t_rel,lcf_mul,c='0.67',lw=2,zorder=0)
+                m_i -= self.stepsPerOrb
         axlig.axhline(0,c='0.5',ls=':',zorder=1)
         
         f_terp = interpolate.interp1d(t_act,lcf_use)
@@ -1525,8 +1565,12 @@ class parcel(object):
     
     
     def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
-                      run_integrals=False,bolo=False,begins='periast'):
+                      run_integrals=False,bolo=False,begins='periast',multi_orbit=False):
         """Blah blah blah."""
+        quit_out = self._can_make_the_fig('Combo_OrbitLC',False)
+        if quit_out:
+            return
+        
         fig_orblc = plt.figure(figsize=(14,7))
         
         _axorb = plt.subplot(121)
@@ -1534,7 +1578,7 @@ class parcel(object):
         
         _axlig = plt.subplot(122)
         self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-                             begins,_combo=True,_axuse=_axlig)
+                             begins,multi_orbit,_combo=True,_axuse=_axlig)
         
         fig_orblc.tight_layout(w_pad=2)
         self.fig_orblc = fig_orblc
@@ -1544,13 +1588,17 @@ class parcel(object):
     
     def Combo_LCOrth(self,phase,relative_periast=False,force_contrast=False,
                      wave_band=False,a_microns=6.5,b_microns=9.5,
-                     run_integrals=False,bolo=False,begins='periast',show_legend=True):
+                     run_integrals=False,bolo=False,begins='periast',multi_orbit=False,show_legend=True):
         """Blah blah blah."""
+        quit_out = self._can_make_the_fig('Combo_LCOrth',False)
+        if quit_out:
+            return
+        
         fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
         
         # Return correct phase index to override calc in Orth_Mapper
         _i_phase = self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-                                        begins,_combo=True,_axuse=_axlig,
+                                        begins,multi_orbit,_combo=True,_axuse=_axlig,
                                         _phase=phase,_relperi=relative_periast)
         
         # Check if light curve quit with bad *begins*
