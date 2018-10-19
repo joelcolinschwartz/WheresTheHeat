@@ -907,8 +907,12 @@ class parcel(object):
         else:
             fig_orbit,axorb = plt.subplots(figsize=(7,7))
         
-        i_one = int(self.stepsPerOrb+1)
-        au_pos = self.orb_pos[:i_one]/self.astro_unit
+        if self.numOrbs < 1.0:
+            dummy_time = np.linspace(0,self.Porb,self.stepsPerOrb+1)
+            au_pos = self.kep_E.xyzPos(dummy_time)/self.astro_unit
+        else:
+            i_one = self.stepsPerOrb + 1
+            au_pos = self.orb_pos[:i_one]/self.astro_unit
         axorb.plot(au_pos[:,0],au_pos[:,2],c='k',zorder=1)  # Overhead is x-z plane
         
         # Star has marker and line styles
@@ -1083,11 +1087,10 @@ class parcel(object):
             print('')
         return quit_out
     
-    ## PICK BACK UP HERE!!!
     def _final_orbit_index(self):
         """Something something else."""
-        # +1 so initial phase is not included twice.
-        f_o_i = int(round(self.stepsPerOrb*(self.numOrbs-1))) + 1
+        # Ensures ending phase is not included twice.
+        f_o_i = self.timeval.size - self.stepsPerOrb
         return max(f_o_i,0)
     
     def _orth_bounds(self,force_contrast,heat_map):
@@ -1420,27 +1423,37 @@ class parcel(object):
     
     def _light_indices(self,begins):
         """Blah blah blah."""
-        # _final_orbit_index has +1 so initial phase is not included twice.
+        bad_begin = False
+        # Ensures ending phase is not included twice.
         fin_orb_start = self._final_orbit_index()
         
-        if begins == 'periast':
-            fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
-        elif begins == 'apast':
-            fi_end = np.argmin(np.cos(self.tru_anom[fin_orb_start:]))
-        elif begins == 'transit':
-            fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
-        elif begins == 'eclipse':
-            fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
-        elif begins == 'ascend':
-            fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
-        elif begins == 'descend':
-            fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
-
-        i_end = fi_end + fin_orb_start
+        if fin_orb_start == 0:
+            i_start,i_end = 0,self.timeval.size
+            bad_begin = True
+        else:
+            if begins == 'periast':
+                fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
+            elif begins == 'apast':
+                fi_end = np.argmin(np.cos(self.tru_anom[fin_orb_start:]))
+            elif begins == 'transit':
+                fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
+            elif begins == 'eclipse':
+                fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
+            elif begins == 'ascend':
+                fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
+            elif begins == 'descend':
+                fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
             
-        i_start = i_end - int(self.stepsPerOrb)
-        i_end += 1  # To have initial phase repeated
-        return i_start,i_end
+            if (fi_end + fin_orb_start) < self.stepsPerOrb:
+                # Can't use this *begins* so final orbit instead.
+                fi_end = self.stepsPerOrb - 1
+                bad_begin = True
+            
+            i_end = fi_end + fin_orb_start
+            
+            i_start = i_end - self.stepsPerOrb
+            i_end += 1  # To have initial phase repeated
+        return i_start,i_end,bad_begin
 
     def _light_times(self,i_start,i_end):
         """Blah blah blah."""
@@ -1477,12 +1490,13 @@ class parcel(object):
             t_a += self.Porb
         return
     
-    def _light_window(self,axlig,lc_high,f_y,ol_sty):
+    def _light_window(self,axlig,lc_high,f_y,ol_sty,bad_begin):
         """Blah blah blah."""
         axlig.set_ylim(-f_y*lc_high,(1+f_y)*lc_high)
         
         axlig.set_title('Light Curve of '+self.name)
-        axlig.set_xlabel('Time from '+ol_sty[-1]+' (orbits)')
+        xl = 'Relative Time' if bad_begin else 'Time from '+ol_sty[-1]
+        axlig.set_xlabel(xl+' (orbits)')
         axlig.set_ylabel('Flux ( planet / star )')
         return
 
@@ -1508,7 +1522,7 @@ class parcel(object):
         else:
             fig_light,axlig = plt.subplots(figsize=(7,7))
         
-        i_start,i_end = self._light_indices(begins)
+        i_start,i_end,bad_begin = self._light_indices(begins)
         lcf_use = lightcurve_flux[i_start:i_end]
         t_act,t_start,t_end,o_start,t_rel = self._light_times(i_start,i_end)
         
@@ -1552,7 +1566,7 @@ class parcel(object):
                 self._prop_plotcheck(axlig,_time_phase,o_start,t_start,t_end,f_terp,
                                      orbloc_styles_['phase'],y_mark,_combo)
         
-        self._light_window(axlig,lc_high,f_y,orbloc_styles_[begins])
+        self._light_window(axlig,lc_high,f_y,orbloc_styles_[begins],bad_begin)
         
         if not _combo:
             fig_light.tight_layout()
