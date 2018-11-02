@@ -93,8 +93,8 @@ def RecircEfficiency_Convert(epsilon,kind='infinite'):
         new_epsilon[good_check] = ((b*old_epsilon[good_check])/(1.0 - old_epsilon[good_check]))**(1.0/a)  # Inverse of above
     else:
         print('RecircEfficiency_Convert error: strings for *kind* are')
-        print('\"infinite\" to convert 0-inf into 0-1, or')
-        print('\"unity\" to convert 0-1 into 0-inf.')
+        print('    \"infinite\" to convert 0-inf into 0-1, or')
+        print('    \"unity\" to convert 0-1 into 0-inf.')
         return
 
     return new_epsilon
@@ -139,6 +139,7 @@ class parcel(object):
     speed_light = (2.99792458)*(10**8)  # in m/s
     
     _accept_motions = ('perR','perA','freqR','freqA')
+    _accept_rotval = ('time','periS','periC','phaseS','phaseC','logist')
     _accept_begins = ('transit','eclipse','ascend','descend','periast','apast')
     
     
@@ -173,12 +174,40 @@ class parcel(object):
         return (ap+180.0) % 360.0
     
     
+    # MOVE BELOW _parse_motion???
+    def _verify_variable_rotval(self,rotval):
+        """Blah blah blah."""
+        if len(rotval) == 0:
+            return False  # Straight to the wizard!
+        
+        else:
+            ver_const = isinstance(rotval[0],(float,int,str))  # Constant term
+            verL = [ver_const]  # List to collect each verify
+                
+            for rv in rotval[1:]:
+                try:  # List-like entries might pass...
+                    ver_kind = rv[0] in self._accept_rotval
+                    
+                    nl = len(rv[1:])
+                    rvA = np.asarray(rv[1:])
+                    sA = rvA.size
+                    # Is it numbers and either [c1,c2,c3,...] or [[ord1,c1,off1],...] ?
+                    ver_nums = np.issubdtype(rvA.dtype,np.number) and ((sA == nl) or (sA == 3*nl))
+                    
+                    verL.append(np.all([ver_kind,ver_nums]))
+                
+                except:  # ...and everything else will fail. :-)
+                    verL.append(False)
+            
+            return verL
+    
     def _parse_motion(self,motions,calc_orb,orbval,rotval):
         """Blah blah blah."""
         mots_loc,calo_loc,orbv_loc,rotv_loc = motions,calc_orb,orbval,rotval
         cur = lambda v: print('    Current value is {:}.'.format(v))
         blank = '; leave blank to keep current: '
         ok = '    OK, keeping current value.'
+        cant = '    Cannot eval, try again.'
         
         if mots_loc not in self._accept_motions:
             print('Constructor warning: strings for *motions* are '+str(self._accept_motions)+'.')
@@ -217,7 +246,7 @@ class parcel(object):
                     try:
                         orbv_loc = eval(o)
                     except:
-                        print('    Cannot eval, try again.')
+                        print(cant)
                 print('')
         else:
             # ...otherwise *orbval* doesn't matter.
@@ -235,10 +264,32 @@ class parcel(object):
                 try:
                     rotv_loc = eval(r)
                 except:
-                    print('    Cannot eval, try again.')
+                    print(cant)
             print('')
 
         return mots_loc,calo_loc,orbv_loc,rotv_loc
+    
+    def _invert_end_rot_motion(self,motions):
+        """Blah blah blah."""
+        mot_style,mot_qual = motions[:-1],motions[-1]
+        wr = np.atleast_1d(self.Wrot)[-1]
+        # So you could always vary Prot later if you want.
+        pr = (360*100)*self.Porb if wr == 0 else np.atleast_1d(self.Prot)[-1]
+        
+        if mot_style == 'freq':  # Converted from rad/second to degrees/day
+            if mot_qual == 'A':
+                rotval = np.degrees(wr*self.sec_per_day)
+            elif mot_qual == 'R':
+                rotval = wr*(self.Porb/(2.0*pi))/self._ecc_factor
+
+        elif mot_style == 'per':  # Converted from seconds to days
+            sw = 1 if wr >= 0 else -1
+            if mot_qual == 'A':
+                rotval = (sw*pr)/self.sec_per_day
+            elif mot_qual == 'R':
+                rotval = (sw*pr)*(self._ecc_factor/self.Porb)
+        
+        return rotval
     
     
     def _has_param_changed(self,old,new):
@@ -380,8 +431,15 @@ class parcel(object):
         """Blah blah blah."""
         t_norm = self.timeval_rot/self.Porb  # seconds to number of orbits
         
-        # Constant term (DOES THIS NEED A RELOOK?)
-        RV_built = np.atleast_1d(self._last_RV_built)[-1] if isinstance(rotval[0],str) else rotval[0]
+        # Factor for logistic function (LF) when only coeffs are passed.
+        #     Strictly, standard LF = 0 only when t --> -inf. But this method:
+        #     removes the first 1/(1+fac) of growth so LF(t=0) = 0,
+        #     divides by fac/(1 + fac) so LF(t-->inf) = 1.0,
+        #     and then multiplies LF by coeff.
+        # A larger np.log(fac) means steeper LF; fac = 99 gives a nice curve.
+        fac = 99
+        
+        RV_built = rotval[0]  # Constant term
         
         for rv in rotval[1:]:
             kind = rv[0]
@@ -392,20 +450,30 @@ class parcel(object):
                 coeff = rvA[:,1,np.newaxis]
                 offset = rvA[:,2,np.newaxis]
             elif rvA.ndim == 1:  # [coeff1,coeff2,...]
-                order = np.arange(1,len(rvA)+1)[:,np.newaxis]
                 coeff = rvA[:,np.newaxis]
-                offset = 0
+                seq = np.arange(1,len(rvA)+1)[:,np.newaxis]
+                if kind == 'logist':
+                    offset = seq/2  # Midpoint of 1 orbit, 2 orbits, etc.
+                    order = np.log(fac)/offset
+                else:
+                    order = seq
+                    offset = 0
     
             if kind == 'time':
                 alter_RV = (t_norm - offset)**order
-            elif kind == 'peri_sin':
-                alter_RV = np.sin(order*(self.tru_anom - np.radians(offset)))
-            elif kind == 'peri_cos':
-                alter_RV = np.cos(order*(self.tru_anom - np.radians(offset)))
-            elif kind == 'phase_sin':
-                alter_RV = np.sin(order*(np.radians(self.alpha - offset)))
-            elif kind == 'phase_cos':
-                alter_RV = np.cos(order*(np.radians(self.alpha - offset)))
+            elif kind in ['periS','periC']:
+                fun = np.sin if kind[-1] == 'S' else np.cos
+                alter_RV = fun(order*(self.tru_anom - np.radians(offset)))
+            elif kind in ['phaseS','phaseC']:
+                fun = np.sin if kind[-1] == 'S' else np.cos
+                alter_RV = fun(order*(np.radians(self.alpha - offset)))
+            elif kind == 'logist':
+                alter_RV = 1.0/(1 + np.exp(-order*(t_norm - offset)))
+                if rvA.ndim == 1:
+                    alter_RV -= 1.0/(1 + fac)  # start goes to 0
+                    alter_RV /= fac/(1 + fac)  # end limit goes to 1.0
+            else:
+                alter_RV = np.zeros(coeff.shape)
             
             RV_built += np.sum(coeff*alter_RV,axis=0)
             
@@ -441,8 +509,7 @@ class parcel(object):
             Wrot = p_to_w(Prot,RV_built)
         
         Wadvec = Wrot - self.Worb
-        self._last_RV_built = RV_built
-        return Prot,Wrot,Wadvec
+        return Prot,Wrot,Wadvec,RV_built
     
     
     def _using_neworold_param(self,new,old):
@@ -537,7 +604,7 @@ class parcel(object):
         the_low_case = (0.5*(np.cos(self.longs) + np.absolute(np.cos(self.longs)))*np.sin(self.colat))**0.25
         the_high_case = (np.sin(self.colat)/pi)**0.25
         if np.isnan(self.recirc_effic):
-            infinite_eps = np.mean(self.Wadvec)*self.radiate_time  # EDIT???
+            infinite_eps = np.atleast_1d(self.Wadvec)[0]*self.radiate_time
         else:
             infinite_eps = self.recirc_effic
         unity_eps = RecircEfficiency_Convert(infinite_eps)  # Get 0-1 epsilon
@@ -575,7 +642,7 @@ class parcel(object):
                             radiate_time,recirc_effic,
                             numOrbs,stepsPerOrb,NSIDE,_makenew):
         """Lots of stuff and things."""
-        upd_mot,upd_cal,upd_obv,upd_rtv,upd_Po,upd_Pr,upd_Wadv,upd_tv,upd_kE = self._downpipe_assume_same(9)
+        upd_mot,upd_cal,upd_obv,upd_rtv,upd_Po,upd_tv,upd_kE,upd_Pr,upd_Wadv = self._downpipe_assume_same(9)
         
         # Handles '_no' input
         self.Rstar,self.Mstar,self.Rplanet,self.smaxis = self._setup_scaled_quants(Rstar,Mstar,Rplanet,smaxis)
@@ -597,7 +664,14 @@ class parcel(object):
         
         if self._check_multi_updater([motions,calc_orb,orbval,rotval]):
             mots_loc,calo_loc,orbv_loc,rotv_loc = self._parse_motion(motions,calc_orb,orbval,rotval)
+            ## PICK UP HERE: INSERT _verify_variable_rotval, THEN MAKE A rotval_wizard METHOD.
             upd_mot = self._has_param_changed(self._last_motions,mots_loc)
+            # Are you grabbing a constant term from the previous rotval?
+            if isinstance(rotv_loc,list) and isinstance(rotv_loc[0],str):
+                if not _makenew and (upd_mot == True):
+                    rotv_loc[0] = self._invert_end_rot_motion(mots_loc)
+                else:
+                    rotv_loc[0] = np.atleast_1d(self._last_RV_built)[-1]
             upd_cal = self._has_param_changed(self._last_calc_orb,calo_loc)
             upd_obv = self._has_param_changed(self._last_orbval,orbv_loc)
             upd_rtv = self._has_param_changed(self._last_rotval,rotv_loc)
@@ -645,9 +719,9 @@ class parcel(object):
         if self._check_multi_updater([upd_tv,upd_mot,upd_rtv]) or ecc_check:
             self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
             self._should_add_rottime = False
-        
+            
             old_Prot,old_Wadvec = ('_null','_null') if _makenew else (self.Prot,self.Wadvec)
-            self.Prot,self.Wrot,self.Wadvec = self._setup_rot_motion(mots_loc,rotv_loc)
+            self.Prot,self.Wrot,self.Wadvec,self._last_RV_built = self._setup_rot_motion(mots_loc,rotv_loc)
             upd_Pr = self._has_param_changed(old_Prot,self.Prot)
             upd_Wadv = self._has_param_changed(old_Wadvec,self.Wadvec)
 
@@ -986,8 +1060,10 @@ class parcel(object):
                         back_to_zero = False if b == '' or b[0] == 'N' else (True if b[0] == 'Y' else '_null')
                     print('')
                 elif not keep_varying:
-                    RV_built = self._rotation_builder(self._last_rotval)
-                    self._last_rotval = RV_built[-1]  # Change gets passed below
+                    # WHY DID I DO THAT INSTEAD OF USING _last_RV_built???
+#                    RV_built = self._rotation_builder(self._last_rotval)
+#                    self._last_rotval = RV_built[-1]  # Change gets passed below
+                    self._last_rotval = self._last_RV_built[-1]  # Change gets passed below
             
             if back_to_zero == True:
                 self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew=False)
@@ -1000,8 +1076,8 @@ class parcel(object):
 
         # Advective
         if self._should_add_orbtime or self._should_add_rottime:
-            self.Prot,self.Wrot,self.Wadvec = self._setup_rot_motion(self._last_motions,
-                                                                     self._last_rotval)
+            self.Prot,self.Wrot,self.Wadvec,self._last_RV_built = self._setup_rot_motion(self._last_motions,
+                                                                                         self._last_rotval)
             
             self.radiate_time,self.recirc_effic = self._setup_radiate_recirc(self._last_radiate_time,
                                                                              self._last_recirc_effic)
@@ -1168,6 +1244,7 @@ class parcel(object):
                    transform=cb.ax.transAxes)
         return
     
+    ### ADD FEEDBACK WHEN LOW numOrbs MEANS phase IS BAD???
     def Orth_Mapper(self,phase,relative_periast=False,force_contrast=False,far_side=False,
                     _combo=False,_axuse=None,_cax=None,_i_phase=None):
         """Something something else."""
@@ -1431,6 +1508,7 @@ class parcel(object):
             i_start,i_end = 0,self.timeval.size
             bad_begin = True
         else:
+            ## ADD: PARE DOWN BY COMBINING argmax/min INTO A func IF-STATEMENT.
             if begins == 'periast':
                 fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
             elif begins == 'apast':
@@ -1500,6 +1578,7 @@ class parcel(object):
         axlig.set_ylabel('Flux ( planet / star )')
         return
 
+    ### ADD FEEDBACK WHEN LOW numOrbs MEANS begins IS BAD???
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
                         run_integrals=False,bolo=False,begins='periast',multi_orbit=False,
                         _combo=False,_axuse=None,_phase=None,_relperi=None):
