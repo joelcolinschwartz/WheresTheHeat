@@ -174,32 +174,20 @@ class parcel(object):
         return (ap+180.0) % 360.0
     
     
-    # MOVE BELOW _parse_motion???
-    def _verify_variable_rotval(self,rotval):
-        """Blah blah blah."""
-        if len(rotval) == 0:
-            return False  # Straight to the wizard!
-        
-        else:
-            ver_const = isinstance(rotval[0],(float,int,str))  # Constant term
-            verL = [ver_const]  # List to collect each verify
-                
-            for rv in rotval[1:]:
-                try:  # List-like entries might pass...
-                    ver_kind = rv[0] in self._accept_rotval
-                    
-                    nl = len(rv[1:])
-                    rvA = np.asarray(rv[1:])
-                    sA = rvA.size
-                    # Is it numbers and either [c1,c2,c3,...] or [[ord1,c1,off1],...] ?
-                    ver_nums = np.issubdtype(rvA.dtype,np.number) and ((sA == nl) or (sA == 3*nl))
-                    
-                    verL.append(np.all([ver_kind,ver_nums]))
-                
-                except:  # ...and everything else will fail. :-)
-                    verL.append(False)
-            
-            return verL
+    def _orbrot_entering(self,ty_tup,word,blank,ok,last,cant):
+        """Something some thing."""
+        orbrot = None
+        while not isinstance(orbrot,ty_tup):
+            i = input('    Enter a valid '+word+blank)
+            if i == '':
+                print(ok)
+                orbrot = last
+                break
+            try:
+                orbrot = eval(i)
+            except:
+                print(cant)
+        return orbrot
     
     def _parse_motion(self,motions,calc_orb,orbval,rotval):
         """Blah blah blah."""
@@ -223,13 +211,15 @@ class parcel(object):
         if calo_loc not in [True,False]:
             print('Constructor warning: *calc_orb* is boolean.')
             cur(self._last_calc_orb)
-            while calo_loc not in [True,False]:
-                s = input('    Enter a valid *calc_orb* [T/F]'+blank).capitalize()
-                if s == '':
+            boo = None
+            while boo not in ['T','F']:
+                b = input('    Enter a valid *calc_orb* [T/F]'+blank).capitalize()
+                if b == '':
                     print(ok)
                     calo_loc = self._last_calc_orb
                     break
-                calo_loc = True if s[0] == 'T' else (False if s[0] == 'F' else '_bad')
+                boo = 'T' if b == '' else b[0]
+            calo_loc = True if boo == 'T' else False
             print('')
         
         # Check if *calc_orb* is False...
@@ -237,16 +227,7 @@ class parcel(object):
             if not isinstance(orbv_loc,(float,int)):
                 print('Constructor warning: *orbval* is a float or an integer.')
                 cur(self._last_orbval)
-                while not isinstance(orbv_loc,(float,int)):
-                    o = input('    Enter a valid *orbval*'+blank)
-                    if o == '':
-                        print(ok)
-                        orbv_loc = self._last_orbval
-                        break
-                    try:
-                        orbv_loc = eval(o)
-                    except:
-                        print(cant)
+                orbv_loc = self._orbrot_entering((float,int),'*orbval*',blank,ok,self._last_orbval,cant)
                 print('')
         else:
             # ...otherwise *orbval* doesn't matter.
@@ -255,19 +236,179 @@ class parcel(object):
         if not isinstance(rotv_loc,(float,int,list)):
             print('Constructor warning: *rotval* is a float, an integer, or a list (see docs).')
             cur(self._last_rotval)
-            while not isinstance(rotv_loc,(float,int,list)):
-                r = input('    Enter a valid *rotval*'+blank)
-                if r == '':
-                    print(ok)
-                    rotv_loc = self._last_rotval
-                    break
-                try:
-                    rotv_loc = eval(r)
-                except:
-                    print(cant)
+            rotv_loc = self._orbrot_entering((float,int,list),'*rotval*',blank,ok,self._last_rotval,cant)
             print('')
 
         return mots_loc,calo_loc,orbv_loc,rotv_loc
+
+    def _verify_variable_rotval(self,rotval):
+        """Blah blah blah."""
+        verify_L = []  # List to collect each verify
+
+        if len(rotval) > 0:  # Blanks sent straight to wizard!
+            ver_const = isinstance(rotval[0],(float,int,str))  # Constant term
+            verify_L.append(ver_const)
+            
+            for rv in rotval[1:]:
+                try:  # List-like entries might pass...
+                    ver_kind = rv[0] in self._accept_rotval
+                    
+                    nl = len(rv[1:])
+                    rvA = np.asarray(rv[1:])
+                    sA = rvA.size
+                    # Is it numbers and either [c1,c2,c3,...] or [[ord1,c1,off1],...] ?
+                    ver_nums = np.issubdtype(rvA.dtype,np.number) and ((sA == nl) or (sA == 3*nl))
+                    
+                    verify_L.append(np.all([ver_kind,ver_nums]))
+                
+                except:  # ...and everything else will fail. :-)
+                    verify_L.append(False)
+        
+        return verify_L
+    
+    def _print_pieces(self,stuff):
+        """Blah blah blah."""
+        for p in stuff:
+            print('    '+str(p))
+        return
+    
+    def _wiz_questions(self,dflt,phrase):
+        """Blah blah blah."""
+        calls = ' (y/[n]): ' if dflt == 'y' else ' (n/[y]): '
+        
+        answer = None
+        while answer not in ['y','n']:
+            i = input('    '+phrase+calls).lower()
+            answer = dflt if i == '' else i[0]
+        return answer
+    
+    def _oco_entries(self,word,cant):
+        """Blah blah blah."""
+        numb = None
+        while not isinstance(numb,(float,int)):
+            try:
+                numb = eval(input('    Enter the '+word+': '))
+            except:
+                print(cant)
+        return numb
+
+    ### DOUBLE-CHECK THIS METHOD???
+    def _vary_rotation_wizard(self,verify_L,checked_rv,motions):
+        """Blah blah blah."""
+        cant = '    Cannot eval, try again.'
+        you_tried = len(verify_L) > 0
+        
+        ## Parse the verify list
+        if you_tried and np.all(verify_L):
+            print('RotWizard: your variable rotation is OK. \u2713')
+            print('')
+            return checked_rv
+        
+        elif you_tried:
+            print('RotWizard: your variable rotation has problems.')
+            
+            if np.sum(verify_L) == 0:
+                print('    No pieces are formatted correctly:')
+                self._print_elements(checked_rv)
+                print('    Let\'s start over and make a good list.')
+                rotval = []
+            
+            else:
+                print('    These pieces are formatted wrong:')
+                badver_L = np.logical_not(verify_L)
+                self._print_elements(np.asarray(checked_rv,dtype=object)[badver_L])
+                print('')
+                
+                print('    But these pieces are good to use:')
+                rotval = list(np.asarray(checked_rv,dtype=object)[verify_L])
+                self._print_elements(rotval)
+                print('')
+            
+                if verify_L[0] and (len(rotval) >= 2):
+                    answer = self._wiz_questions('y','Do you want to add more variations?')
+                    if answer == 'y':
+                        print('    OK, let\'s modify the rotation more.')
+                    else:
+                        print('    OK, keeping just the good pieces.')
+                        print('')
+                        return rotval
+                else:
+                    print('    Let\'s continue modifying the rotation.')
+        
+        else:
+            print('RotWizard: let\'s create a new variable rotation.')
+            rotval = []
+        
+        ## Reminder
+        print('    Remember your choices are based on *motions* = {:}.'.format(motions))
+        print('')
+        
+        ## Needs a constant?
+        if not verify_L[0]:
+            print('    Constant term is a float, an integer, or a string to use last value.')
+            const = None
+            while not isinstance(const,(float,int,str)):
+                try:
+                    const = eval(input('    Enter a valid constant (quotes for string): '))
+                except:
+                    print(cant)
+            rotval.insert(0,const)
+            print('')
+        
+        ## Want variations?
+        word = 'a' if len(rotval) == 1 else 'another'
+        answer = self._wiz_questions('y','Add '+word+' variation?')
+        more_ki = True if answer == 'y' else False
+        print('')
+        
+        ## Variations loop
+        while more_ki:
+            ## Kind
+            print('    Kinds of variation are {:}.'.format(self._accept_rotval))
+            kind = None
+            while kind not in self._accept_rotval:
+                kind = input('    Enter a valid kind (no quotes): ')
+            rv_piece = [kind]
+            
+            ## Entry style
+            print('    Entries are either order + coefficient + offset or coefficient only.')
+            answer = self._wiz_questions('n','Do you want to enter order + coefficient + offset?')
+            entr = False if answer == 'n' else True
+
+            more_el,dex = True,1
+            head = 'Element' if entr else 'Order'
+            
+            ## Elements loop
+            while more_el:
+                print('    '+head+' #{:}'.format(dex))
+                
+                if entr:
+                    order = self._oco_entries(self,'order',cant)
+                coeff = self._oco_entries(self,'coefficient',cant)
+                if entr:
+                    offset = self._oco_entries(self,'offset',cant)
+
+                data = [order,coeff,offset] if entr else coeff
+                rv_piece.append(data)
+                
+                ## More elements?
+                answer = self._wiz_questions('n','Add another element?')
+                if answer == 'n':
+                    more_el = False
+                else:
+                    dex += 1
+            
+            rotval.append(rv_piece)
+            
+            ## More variations?
+            answer = self._wiz_questions('n','Add another variation?')
+            if answer == 'n':
+                more_ki == False
+            print('')
+        
+        print('    Rotwizard finished creating your variable rotation!')
+        print('')
+        return rotval
     
     def _invert_end_rot_motion(self,motions):
         """Blah blah blah."""
@@ -1039,7 +1180,7 @@ class parcel(object):
         
         # Rotational
         vary_check = isinstance(self._last_rotval,list)
-        keep_varying,back_to_zero = '_null','_null'
+        keep_varying,back_to_zero = '_bad','_bad'  # PICK UP HERE TOO, FIX THESE while-LOOPS!!!!!
         
         if self._should_add_rottime:
             
@@ -1048,16 +1189,16 @@ class parcel(object):
                 print('    The current *rotval* is {:}.'.format(self._last_rotval))
                 print('    Or, you can hold the rotation rate at its last evolved value.')
                 while keep_varying not in [True,False]:
-                    q = input('    Do you want to keep varying the spin? Default is Yes. [Y/N]: ').capitalize()
-                    keep_varying = True if q == '' or q[0] == 'Y' else (False if q[0] == 'N' else '_null')
+                    q = input('    Do you want to keep varying the spin? (y/[n]): ').lower()
+                    keep_varying = True if q == '' or q[0] == 'y' else (False if q[0] == 'n' else '_bad')
                 print('')
                 
                 if keep_varying and any(r[0] == 'time' for r in self._last_rotval[1:]):
                     print('Your custom *rotval* has explicit time components.')
                     print('    It could give bad rotation rates if your planet evolves long enough.')
                     while back_to_zero not in [True,False]:
-                        b = input('    Do you want to reset these components to t=0? Default is No. [N/Y]: ').capitalize()
-                        back_to_zero = False if b == '' or b[0] == 'N' else (True if b[0] == 'Y' else '_null')
+                        b = input('    Do you want to reset these components to t=0? (n/[y]): ').lower()
+                        back_to_zero = False if b == '' or b[0] == 'n' else (True if b[0] == 'y' else '_bad')
                     print('')
                 elif not keep_varying:
                     # WHY DID I DO THAT INSTEAD OF USING _last_RV_built???
