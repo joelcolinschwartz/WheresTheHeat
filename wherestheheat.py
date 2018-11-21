@@ -92,9 +92,10 @@ def RecircEfficiency_Convert(epsilon,kind='infinite'):
         good_check = np.logical_not(high_check)
         new_epsilon[good_check] = ((b*old_epsilon[good_check])/(1.0 - old_epsilon[good_check]))**(1.0/a)  # Inverse of above
     else:
+        d = lambda n: (' '*4)*n
         print('RecircEfficiency_Convert error: strings for *kind* are')
-        print('    \"infinite\" to convert 0-inf into 0-1, or')
-        print('    \"unity\" to convert 0-1 into 0-inf.')
+        print(d(1)+'\"infinite\" to convert 0-inf --> 0-1, or')
+        print(d(1)+'\"unity\" to convert 0-1 --> 0-inf.')
         return
 
     return new_epsilon
@@ -142,6 +143,27 @@ class parcel(object):
     _accept_rotval = ('time','periS','periC','phaseS','phaseC','logist')
     _accept_begins = ('transit','eclipse','ascend','descend','periast','apast')
     
+    _tab_spaces = 4
+    _method_delim = '* * * * * * *'
+    
+    
+    def _shift_tab(self,amt=None):
+        """Blah blah blah."""
+        self._tab_level = 0 if amt == None else max(0,int(amt)+self._tab_level)
+        return
+    
+    def _indent(self):
+        return (' '*self._tab_spaces)*self._tab_level
+
+    def _dyn_print(self,words,amt=None,end='\n'):
+        """Blah blah blah."""
+        if end == '\n':
+            print(self._indent()+words)
+            self._shift_tab(amt=amt)
+        else:
+            print(words,end=end)
+        return
+    
     
     def _check_single_updater(self,thing):
         """Blah blah blah."""
@@ -178,76 +200,85 @@ class parcel(object):
         """Something some thing."""
         orbrot = None
         while not isinstance(orbrot,ty_tup):
-            i = input('    Enter a valid '+word+blank)
+            i = input(self._indent()+'Enter '+word+blank)
             if i == '':
-                print(ok)
+                self._dyn_print(ok,amt=0)
                 orbrot = last
                 break
             try:
                 orbrot = eval(i)
             except:
-                print(cant)
+                self._dyn_print(cant,amt=0)
         return orbrot
     
     def _parse_motion(self,motions,calc_orb,orbval,rotval):
         """Blah blah blah."""
         mots_loc,calo_loc,orbv_loc,rotv_loc = motions,calc_orb,orbval,rotval
-        cur = lambda v: print('    Current value is {:}.'.format(v))
-        blank = '; leave blank to keep current: '
-        ok = '    OK, keeping current value.'
-        cant = '    Cannot eval, try again.'
+        cur = lambda v: self._dyn_print('Current value is {:}.'.format(v),amt=0)
+        blank = '; blank to keep current: '
+        ok = 'OK, keeping current value.'
+        cant = 'Cannot eval, try again.'
+        gap = False
         
         if mots_loc not in self._accept_motions:
-            print('Constructor warning: strings for *motions* are '+str(self._accept_motions)+'.')
+            gap = True
+            self._dyn_print('Constructor warning: *motions* strings are '+str(self._accept_motions)+'.',amt=1)
             cur(self._last_motions)
             while mots_loc not in self._accept_motions:
-                mots_loc = input('    Enter a valid *motions* (no quotes)'+blank)
+                mots_loc = input(self._indent()+'Enter a *motions* (no quotes)'+blank)
                 if mots_loc == '':
-                    print(ok)
+                    self._dyn_print(ok,amt=0)
                     mots_loc = self._last_motions
                     break
-            print('')
-        
+            self._shift_tab(amt=-1)
+
         if calo_loc not in [True,False]:
-            print('Constructor warning: *calc_orb* is boolean.')
+            gap = True
+            self._dyn_print('Constructor warning: *calc_orb* is boolean.',amt=1)
             cur(self._last_calc_orb)
             boo = None
             while boo not in ['T','F']:
-                b = input('    Enter a valid *calc_orb* [T/F]'+blank).capitalize()
+                b = input(self._indent()+'Enter a *calc_orb* [T/F]'+blank).capitalize()
                 if b == '':
-                    print(ok)
+                    self._dyn_print(ok,amt=0)
                     calo_loc = self._last_calc_orb
                     break
-                boo = 'T' if b == '' else b[0]
-            calo_loc = True if boo == 'T' else False
-            print('')
-        
+                boo = b[0]
+                if boo in ['T','F']:
+                    calo_loc = True if boo == 'T' else False
+            self._shift_tab(amt=-1)
+
         # Check if *calc_orb* is False...
         if not calo_loc:
             if not isinstance(orbv_loc,(float,int)):
-                print('Constructor warning: *orbval* is a float or an integer.')
+                gap = True
+                self._dyn_print('Constructor warning: *orbval* is a float or integer.',amt=1)
                 cur(self._last_orbval)
-                orbv_loc = self._orbrot_entering((float,int),'*orbval*',blank,ok,self._last_orbval,cant)
-                print('')
+                orbv_loc = self._orbrot_entering((float,int),'an *orbval*',blank,ok,self._last_orbval,cant)
+                self._shift_tab(amt=-1)
         else:
             # ...otherwise *orbval* doesn't matter.
             orbv_loc = orbv_loc if isinstance(orbv_loc,(float,int)) else self._last_orbval
         
         if not isinstance(rotv_loc,(float,int,list)):
-            print('Constructor warning: *rotval* is a float, an integer, or a list (see docs).')
+            gap = True
+            self._dyn_print('Constructor warning: *rotval* is a float, integer, or list (see docs).',amt=1)
             cur(self._last_rotval)
-            rotv_loc = self._orbrot_entering((float,int,list),'*rotval*',blank,ok,self._last_rotval,cant)
+            rotv_loc = self._orbrot_entering((float,int,list),'a *rotval*',blank,ok,self._last_rotval,cant)
+            self._shift_tab(amt=-1)
+
+        if gap:
             print('')
 
         return mots_loc,calo_loc,orbv_loc,rotv_loc
 
     def _verify_variable_rotval(self,rotval):
         """Blah blah blah."""
-        verify_L = []  # List to collect each verify
+        verify_rvL = []  # List to collect each verify
 
         if len(rotval) > 0:  # Blanks sent straight to wizard!
             ver_const = isinstance(rotval[0],(float,int,str))  # Constant term
-            verify_L.append(ver_const)
+            verify_rvL.append(ver_const)
             
             for rv in rotval[1:]:
                 try:  # List-like entries might pass...
@@ -259,26 +290,29 @@ class parcel(object):
                     # Is it numbers and either [c1,c2,c3,...] or [[ord1,c1,off1],...] ?
                     ver_nums = np.issubdtype(rvA.dtype,np.number) and ((sA == nl) or (sA == 3*nl))
                     
-                    verify_L.append(np.all([ver_kind,ver_nums]))
+                    verify_rvL.append(np.all([ver_kind,ver_nums]))
                 
                 except:  # ...and everything else will fail. :-)
-                    verify_L.append(False)
+                    verify_rvL.append(False)
         
-        return verify_L
+        return verify_rvL
     
     def _print_pieces(self,stuff):
         """Blah blah blah."""
+        n = 1
         for p in stuff:
-            print('    '+str(p))
+            amt = -1 if n == len(stuff) else 0
+            self._dyn_print(str(p),amt=amt)
+            n += 1
         return
     
-    def _wiz_questions(self,dflt,phrase):
+    def _ask_question(self,dflt,phrase):
         """Blah blah blah."""
-        calls = ' (y/[n]): ' if dflt == 'y' else ' (n/[y]): '
+        calls = ' [*y/n]: ' if dflt == 'y' else ' [y/n*]: '
         
         answer = None
         while answer not in ['y','n']:
-            i = input('    '+phrase+calls).lower()
+            i = input(self._indent()+phrase+calls).lower()
             answer = dflt if i == '' else i[0]
         return answer
     
@@ -287,128 +321,148 @@ class parcel(object):
         numb = None
         while not isinstance(numb,(float,int)):
             try:
-                numb = eval(input('    Enter the '+word+': '))
+                numb = eval(input(self._indent()+'Enter the '+word+': '))
             except:
-                print(cant)
+                self._dyn_print(cant,amt=0)
+        return numb
+
+    def _c_only_entries(self,dex,cant):
+        """Blah blah blah."""
+        numb = None
+        while not isinstance(numb,(float,int)):
+            state = self._indent()+'Enter the order #{:} coefficient'.format(dex)
+            dflt = ': ' if dex == 1 else ' (blank to stop): '
+            yours = input(state+dflt)
+            if (dex >= 2) and (yours == ''):
+                numb = '_stop'
+                break
+            try:
+                numb = eval(yours)
+            except:
+                self._dyn_print(cant)
         return numb
 
     ### DOUBLE-CHECK THIS METHOD???
-    def _vary_rotation_wizard(self,verify_L,checked_rv,motions):
+    def _vary_rotation_wizard(self,verify_rvL,checked_rv,motions):
         """Blah blah blah."""
-        cant = '    Cannot eval, try again.'
-        you_tried = len(verify_L) > 0
+        cant = 'Cannot eval, try again.'
+        you_tried = len(verify_rvL) > 0
         
         ## Parse the verify list
-        if you_tried and np.all(verify_L):
-            print('RotWizard: your variable rotation is OK. \u2713')
-            print('')
+        if you_tried and np.all(verify_rvL):
+            self._dyn_print('RotWizard: your variable rotation is OK. \u2713',amt=0)
             return checked_rv
         
         elif you_tried:
-            print('RotWizard: your variable rotation has problems.')
-            
-            if np.sum(verify_L) == 0:
-                print('    No pieces are formatted correctly:')
-                self._print_elements(checked_rv)
-                print('    Let\'s start over and make a good list.')
-                rotval = []
+            self._dyn_print('RotWizard: your variable rotation has problems.',amt=1)
+
+            if np.sum(verify_rvL) == 0:
+                self._dyn_print('No pieces are formatted correctly:',amt=1)
+                self._print_pieces(checked_rv)
+                self._dyn_print('Let\'s start over and make a good list.',amt=0)
+                wiz_rotval = []
             
             else:
-                print('    These pieces are formatted wrong:')
-                badver_L = np.logical_not(verify_L)
-                self._print_elements(np.asarray(checked_rv,dtype=object)[badver_L])
-                print('')
-                
-                print('    But these pieces are good to use:')
-                rotval = list(np.asarray(checked_rv,dtype=object)[verify_L])
-                self._print_elements(rotval)
-                print('')
-            
-                if verify_L[0] and (len(rotval) >= 2):
-                    answer = self._wiz_questions('y','Do you want to add more variations?')
-                    if answer == 'y':
-                        print('    OK, let\'s modify the rotation more.')
+                self._dyn_print('These pieces are formatted wrong:',amt=1)
+                badver_rvL = np.logical_not(verify_rvL)
+                self._print_pieces(np.asarray(checked_rv,dtype=object)[badver_rvL])
+
+                self._dyn_print('But these pieces are good:',amt=1)
+                wiz_rotval = list(np.asarray(checked_rv,dtype=object)[verify_rvL])
+                self._print_pieces(wiz_rotval)
+
+                if verify_rvL[0] and (len(wiz_rotval) >= 2):
+                    answer = self._ask_question('n','Use only the good pieces and exit the wizard?')
+                    self._shift_tab(amt=1)
+                    if answer == 'n':
+                        self._dyn_print('OK, let\'s modify the rotation more.',amt=-1)
                     else:
-                        print('    OK, keeping just the good pieces.')
-                        print('')
-                        return rotval
+                        self._dyn_print('Got it, keeping just the good pieces.',amt=-2)
+                        return wiz_rotval
                 else:
-                    print('    Let\'s continue modifying the rotation.')
-        
+                    self._dyn_print('Let\'s continue modifying the rotation.',amt=0)
+
         else:
-            print('RotWizard: let\'s create a new variable rotation.')
-            rotval = []
+            self._dyn_print('RotWizard: let\'s create a new variable rotation.',amt=1)
+            wiz_rotval = []
         
         ## Reminder
-        print('    Remember your choices are based on *motions* = {:}.'.format(motions))
-        print('')
-        
+        self._dyn_print('Remember your entries are for *motions* = {:}.'.format(motions),amt=0)
+
         ## Needs a constant?
-        if not verify_L[0]:
-            print('    Constant term is a float, an integer, or a string to use last value.')
+        if not you_tried or not verify_rvL[0]:
+            self._dyn_print('Constant term is a float or integer, or a string to use last value.',amt=1)
             const = None
             while not isinstance(const,(float,int,str)):
                 try:
-                    const = eval(input('    Enter a valid constant (quotes for string): '))
+                    const = eval(input(self._indent()+'Enter a constant (quotes for string): '))
                 except:
-                    print(cant)
-            rotval.insert(0,const)
-            print('')
-        
+                    self._dyn_print(cant,amt=0)
+            wiz_rotval.insert(0,const)
+            self._shift_tab(amt=-1)
+
         ## Want variations?
-        word = 'a' if len(rotval) == 1 else 'another'
-        answer = self._wiz_questions('y','Add '+word+' variation?')
+        word = 'a' if len(wiz_rotval) == 1 else 'another'
+        answer = self._ask_question('y','Add '+word+' variation?')
         more_ki = True if answer == 'y' else False
-        print('')
-        
+        if not more_ki:
+            self._shift_tab(amt=-1)
+
         ## Variations loop
         while more_ki:
+            self._shift_tab(amt=1)
             ## Kind
-            print('    Kinds of variation are {:}.'.format(self._accept_rotval))
+            self._dyn_print('Kinds of variation are {:}.'.format(self._accept_rotval),amt=1)
             kind = None
             while kind not in self._accept_rotval:
-                kind = input('    Enter a valid kind (no quotes): ')
+                kind = input(self._indent()+'Enter a kind (no quotes): ')
             rv_piece = [kind]
+            self._shift_tab(amt=-1)
             
             ## Entry style
-            print('    Entries are either order + coefficient + offset or coefficient only.')
-            answer = self._wiz_questions('n','Do you want to enter order + coefficient + offset?')
-            entr = False if answer == 'n' else True
+            self._dyn_print('Entries are either order--coefficient--offset (CO2) or coefficient only.',amt=1)
+            answer = self._ask_question('n','Do you want to use CO2 style?')
+            co2 = False if answer == 'n' else True
 
             more_el,dex = True,1
-            head = 'Element' if entr else 'Order'
-            
+
             ## Elements loop
             while more_el:
-                print('    '+head+' #{:}'.format(dex))
+                self._shift_tab(amt=1)
+                if co2:
+                    self._dyn_print('Element #{:}'.format(dex),amt=1)
+                    order = self._oco_entries('order',cant)
+                    coeff = self._oco_entries('coefficient',cant)
+                    offset = self._oco_entries('offset',cant)
                 
-                if entr:
-                    order = self._oco_entries(self,'order',cant)
-                coeff = self._oco_entries(self,'coefficient',cant)
-                if entr:
-                    offset = self._oco_entries(self,'offset',cant)
-
-                data = [order,coeff,offset] if entr else coeff
-                rv_piece.append(data)
+                    rv_piece.append([order,coeff,offset])
                 
-                ## More elements?
-                answer = self._wiz_questions('n','Add another element?')
-                if answer == 'n':
-                    more_el = False
+                    answer = self._ask_question('n','Add another element?')
+                    if answer == 'n':
+                        more_el = False
+                    amt = -2 if more_el else -4
+                
                 else:
-                    dex += 1
-            
-            rotval.append(rv_piece)
+                    coeff = self._c_only_entries(dex,cant)
+                    if isinstance(coeff,str):
+                        more_el = False
+                    else:
+                        rv_piece.append(coeff)
+                    amt = -1 if more_el else -3
+                
+                dex += 1
+                self._shift_tab(amt=amt)
+        
+            wiz_rotval.append(rv_piece)
             
             ## More variations?
-            answer = self._wiz_questions('n','Add another variation?')
+            answer = self._ask_question('n','Add another variation?')
             if answer == 'n':
-                more_ki == False
-            print('')
-        
-        print('    Rotwizard finished creating your variable rotation!')
-        print('')
-        return rotval
+                more_ki = False
+                self._shift_tab(amt=-1)
+
+        self._dyn_print('RotWizard finished creating your variable rotation!',amt=0)
+        return wiz_rotval
     
     def _invert_end_rot_motion(self,motions):
         """Blah blah blah."""
@@ -474,10 +528,10 @@ class parcel(object):
             
         t_end = t_start + self.Porb*self.numOrbs
         N = round(self.numOrbs*self.stepsPerOrb)
-        timeval = np.linspace(t_start,t_end,num=N+1)
+        timeval = np.linspace(t_start,t_end,N+1)
 
         n_end = n_start + self.numOrbs
-        trackorbs = np.linspace(n_start,n_end,num=N+1)
+        trackorbs = np.linspace(n_start,n_end,N+1)
         return timeval,trackorbs
 
 
@@ -485,7 +539,7 @@ class parcel(object):
         """Ha ha ha."""
         # The KeplerEllipse coordinates are: x == "North", y == "East", z == "away from observer".
         # Our orbits are edge-on with inclination = 90 degrees, so orbits in x-z plane.
-        # Longitude of ascending node doesn't really matter, so we set Omega = 0 degrees (along +x axis).
+        # Longitude of ascending node doesn't really matter, so we set Omega = 0 deg (along +x axis).
         # Argument of periastron measured from ascending node at 1st quarter phase (alpha = 90 deg).
         # >>> SEE KEY NOTE IN _modify_arg_peri METHOD!!!
         return pyasl.KeplerEllipse(self.smaxis,self.Porb,e=self.eccen,Omega=0.0,w=self.arg_peri,i=90.0)
@@ -511,7 +565,7 @@ class parcel(object):
         n_start = self.trackorbs[n_i]
         n_end = n_start + self.numOrbs
         N = round(self.numOrbs*self.stepsPerOrb)
-        new_trackorbs = np.linspace(n_start,n_end,num=N+1)
+        new_trackorbs = np.linspace(n_start,n_end,N+1)
         return new_timeval,new_trackorbs
     
 
@@ -558,14 +612,20 @@ class parcel(object):
         return plus_time,plus_pos,plus_tru_anom,minus_time,minus_pos,minus_tru_anom
     
     
-    def _reset_rot_times(self,_makenew):
+    def _alter_rot_times(self,_makenew,_reset):
         """Blah blah blah."""
         if _makenew:
             spin_history,timeval_rot = 0,np.copy(self.timeval)
         else:
             t_i = -1 if self._has_T_evolved else 0
             spin_history = self._net_zero_long[t_i]
-            timeval_rot = np.copy(self.timeval - self.timeval[0])
+            if _reset:
+                timeval_rot = np.copy(self.timeval - self.timeval[0])
+            else:
+                # Mimic current timeval shape
+                cur_start,cur_end = self.timeval_rot[[0,-1]]
+                new_N = self.timeval.size
+                timeval_rot = np.linspace(cur_start,cur_end,new_N)
         return spin_history,timeval_rot
 
     def _rotation_builder(self,rotval):
@@ -669,9 +729,9 @@ class parcel(object):
                 
                 if self.Wadvec == 0:
                     if recirc_effic != 0:
-                        print('Constructor warning: atmosphere\'s advective frequency is 0, *recirc_effic* is not.')
-                        print('    Your planet has no winds, but you want to transport heat.')
-                        print('    I am setting radiative time to infinity, but your system is not self-consistent.')
+                        self._dyn_print('Constructor warning: atmosphere\'s advective frequency is 0, *recirc_effic* is not.',amt=1)
+                        self._dyn_print('Your planet has no winds, but you want to transport heat.',amt=0)
+                        self._dyn_print('I am setting radiative time to infinity, but your system is not self-consistent.',amt=-1)
                         print('')
                         radiate_time = np.inf
                     else:
@@ -681,17 +741,18 @@ class parcel(object):
                     radiate_time = abs(recirc_effic/self.Wadvec)
                     # Check for mismatched wind direction
                     if abs(np.sign(recirc_effic)-np.sign(self.Wadvec)) == 2:
-                        print('Constructor warning: atmosphere\'s advective frequency and *recirc_effic* have opposite signs.')
-                        print('    Your planet\'s winds flow one way, but you want them flowing the other way.')
-                        print('    Radiative time is defined, but your system is not self-consistent.')
+                        self._dyn_print('Constructor warning: atmosphere\'s advective frequency and *recirc_effic* have opposite signs.',amt=1)
+                        self._dyn_print('Your planet\'s winds flow one way, but you want them flowing the other way.',amt=0)
+                        self._dyn_print('Radiative time is defined, but your system is not self-consistent.',amt=-1)
                         print('')
 
             else:
-                print('Constructor ignore: you can only set *recirc_effic* if the atmosphere\'s advective frequency is constant.')
+                self._dyn_print('Constructor ignore: you can only set *recirc_effic* if the atmosphere\'s advective frequency is constant.',amt=1)
                 if self.eccen != 0:
-                    print('    Your planet\'s orbit is not circular (orbital angular velocity varies).')
+                    self._dyn_print('Your planet\'s orbit is not circular (orbital angular velocity varies).',amt=0)
                 if not isinstance(self.Wrot,(float,int)):
-                    print('    Your planet\'s spin is not constant (rotational angular velocity varies).')
+                    self._dyn_print('Your planet\'s spin is not constant (rotational angular velocity varies).',amt=0)
+                self._shift_tab(amt=-1)
                 print('')
                 recirc_effic = np.nan
                 radiate_time = tau_rad*self.sec_per_hour  # Converted from hours to seconds
@@ -805,16 +866,20 @@ class parcel(object):
         
         if self._check_multi_updater([motions,calc_orb,orbval,rotval]):
             mots_loc,calo_loc,orbv_loc,rotv_loc = self._parse_motion(motions,calc_orb,orbval,rotval)
-            ## PICK UP HERE: INSERT _verify_variable_rotval, THEN MAKE A rotval_wizard METHOD.
             upd_mot = self._has_param_changed(self._last_motions,mots_loc)
-            # Are you grabbing a constant term from the previous rotval?
-            if isinstance(rotv_loc,list) and isinstance(rotv_loc[0],str):
-                if not _makenew and (upd_mot == True):
-                    rotv_loc[0] = self._invert_end_rot_motion(mots_loc)
-                else:
-                    rotv_loc[0] = np.atleast_1d(self._last_RV_built)[-1]
             upd_cal = self._has_param_changed(self._last_calc_orb,calo_loc)
             upd_obv = self._has_param_changed(self._last_orbval,orbv_loc)
+            # Send to RotWizard?
+            if isinstance(rotv_loc,list):
+                verify_rvL = self._verify_variable_rotval(rotv_loc)
+                rotv_loc = self._vary_rotation_wizard(verify_rvL,rotv_loc,mots_loc)
+                print('')  # For gap in prints
+                # Are you grabbing a constant term from the previous rotval?
+                if isinstance(rotv_loc[0],str):
+                    if not _makenew and (upd_mot == True):
+                        rotv_loc[0] = self._invert_end_rot_motion(mots_loc)
+                    else:
+                        rotv_loc[0] = np.atleast_1d(self._last_RV_built)[-1]
             upd_rtv = self._has_param_changed(self._last_rotval,rotv_loc)
             
             (self._last_motions,self._last_calc_orb,
@@ -858,8 +923,10 @@ class parcel(object):
         ### Rotational Stuff
         ecc_check = (mots_loc[-1] == 'R') and self._check_single_updater(eccen)
         if self._check_multi_updater([upd_tv,upd_mot,upd_rtv]) or ecc_check:
-            self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew)
-            self._should_add_rottime = False
+            # Is the rotation either just changed or not varying?
+            _reset = self._check_single_updater(upd_rtv) or (not isinstance(rotv_loc,list))
+            self.spin_history,self.timeval_rot = self._alter_rot_times(_makenew,_reset)
+            self._should_add_rottime = (not _makenew) and (not _reset)
             
             old_Prot,old_Wadvec = ('_null','_null') if _makenew else (self.Prot,self.Wadvec)
             self.Prot,self.Wrot,self.Wadvec,self._last_RV_built = self._setup_rot_motion(mots_loc,rotv_loc)
@@ -991,9 +1058,10 @@ class parcel(object):
         colat,longs - initial pixel coordinates for gas
         
         """
+        self._tab_level = 0
         
-        print('Constructing model ... ',end='')
-        
+        self._dyn_print('Constructing model...',amt=1)
+
         self.name = name
         
         self._has_T_evolved = False
@@ -1007,7 +1075,9 @@ class parcel(object):
                                  radiate_time,recirc_effic,
                                  numOrbs,stepsPerOrb,NSIDE,_makenew=True)
         
-        print('Finished building {:}'.format(self.name))
+        self._shift_tab(amt=-1)
+        self._dyn_print('Finished building {:}'.format(self.name),amt=None)
+        print(self._method_delim)
         return
         
     
@@ -1058,8 +1128,8 @@ class parcel(object):
             slot_wa = '{:^26}'
         form_cols = slot_wa+' {:^22.3f} {:^10.3f}'
         print(form_cols.format(disp_wadv,self.radiate_time/self.sec_per_hour,self.recirc_effic))
-        print('')
-        
+
+        print(self._method_delim)
         return
 
 
@@ -1070,7 +1140,9 @@ class parcel(object):
                            radiate_time='_no',recirc_effic='_no',
                            numOrbs='_no',stepsPerOrb='_no',NSIDE='_no'):
         """Change your stuff around!"""
-        print('Starting smart mods ... ',end='')
+        self._shift_tab(amt=None)
+        
+        self._dyn_print('Starting smart mods...',amt=1)
         if self._check_single_updater(name):
             self.name = name
         
@@ -1079,8 +1151,62 @@ class parcel(object):
                                  motions,calc_orb,orbval,rotval,
                                  radiate_time,recirc_effic,
                                  numOrbs,stepsPerOrb,NSIDE,_makenew=False)
+
+        self._shift_tab(amt=-1)
+        self._dyn_print('Finished modifying {:}'.format(self.name),amt=None)
+        print(self._method_delim)
+        return
+    
+    
+    ### Variable Rotation
+    
+    def RotWizard(self,motions=None):
+        """Make some stuff!"""
+        self._shift_tab(amt=None)
         
-        print('Finished modifying {:}'.format(self.name))
+        use_mots = motions if motions in self._accept_motions else self._last_motions
+        verify_rvL,checked_rv = [],[]
+        
+        wiz_rotval = self._vary_rotation_wizard(verify_rvL,checked_rv,use_mots)
+        self._shift_tab(amt=None)
+        print(self._method_delim)
+        return wiz_rotval
+
+    def HowRotChanges(self,draw_period=False,spike_limit=None):
+        """Blah blah blah."""
+        fig_howrot,axhow = plt.subplots(figsize=(7,7))
+        
+        if draw_period:
+            fp_vals = self.Prot/self.sec_per_day
+            vert = 'Rotational Period (days)'
+        else:
+            fp_vals = np.degrees(self.Wrot)*self.sec_per_day
+            vert = 'Rotational Frequency (degrees / day)'
+        rel_time = self.timeval_rot/self.Porb
+
+        axhow.plot(rel_time,fp_vals,c='k',lw=2,zorder=2)
+        axhow.axhline(0,c='0.5',ls=':',zorder=1)
+        
+        if spike_limit != None:
+            lo,hi = np.amin(fp_vals),np.amax(fp_vals)
+            if draw_period:
+                cutoff = spike_limit*(self.Porb/self.sec_per_day)
+                f = 0.05  # Padding factor
+                v_low,v_high = (-f*cutoff,cutoff) if hi > cutoff else (None,None)
+            else:
+                Wo_deg = np.degrees(np.amax(np.absolute(self.Worb)))
+                cutoff = spike_limit*(Wo_deg*self.sec_per_day)
+                v_low = -cutoff if lo < -cutoff else None
+                v_high = cutoff if hi > cutoff else None
+
+            axhow.set_ylim(v_low,v_high)
+
+        axhow.set_xlabel('Relative Time (orbits)')
+        axhow.set_ylabel(vert)
+        
+        fig_howrot.tight_layout()
+        self.fig_howrot = fig_howrot
+        plt.show()
         return
     
     
@@ -1179,35 +1305,38 @@ class parcel(object):
              self.Worb,self.alpha,self.frac_litup) = self._calc_orbit_props()
         
         # Rotational
-        vary_check = isinstance(self._last_rotval,list)
-        keep_varying,back_to_zero = '_bad','_bad'  # PICK UP HERE TOO, FIX THESE while-LOOPS!!!!!
-        
         if self._should_add_rottime:
+            back_to_zero = False  # Assume at first
             
-            if vary_check:
-                print('You are varying the rotation rate of your planet, with *motions* = {:}.'.format(self._last_motions))
-                print('    The current *rotval* is {:}.'.format(self._last_rotval))
-                print('    Or, you can hold the rotation rate at its last evolved value.')
-                while keep_varying not in [True,False]:
-                    q = input('    Do you want to keep varying the spin? (y/[n]): ').lower()
-                    keep_varying = True if q == '' or q[0] == 'y' else (False if q[0] == 'n' else '_bad')
-                print('')
-                
-                if keep_varying and any(r[0] == 'time' for r in self._last_rotval[1:]):
-                    print('Your custom *rotval* has explicit time components.')
-                    print('    It could give bad rotation rates if your planet evolves long enough.')
-                    while back_to_zero not in [True,False]:
-                        b = input('    Do you want to reset these components to t=0? (n/[y]): ').lower()
-                        back_to_zero = False if b == '' or b[0] == 'n' else (True if b[0] == 'y' else '_bad')
+            if isinstance(self._last_rotval,list):
+                self._dyn_print('You are varying the rotation rate of your planet, with *motions* = {:}.'.format(self._last_motions),amt=1)
+                self._dyn_print('The current *rotval* is {:}.'.format(self._last_rotval),amt=0)
+                self._dyn_print('Or, you can hold the rotation rate at its last evolved value.',amt=0)
+                answer = self._ask_question('y','Do you want to keep varying the spin?')
+                keep_varying = True if answer == 'y' else False
+
+                some_time = any(r[0] == 'time' for r in self._last_rotval[1:])
+                some_logi = any(r[0] == 'logist' for r in self._last_rotval[1:])
+                if keep_varying and (some_time or some_logi):
                     print('')
+                    if some_time:
+                        self._dyn_print('Your variable *rotval* has explicit \'time\' components.',amt=1)
+                        self._dyn_print('It could give bad rotation rates if your planet evolves long enough.',amt=0)
+                    else:
+                        self._dyn_print('Your variable *rotval* has \'logist\' components.',amt=1)
+                        self._dyn_print('They will be constants once your planet evolves long enough.',amt=0)
+                    answer = self._ask_question('n','Do you want to reset all components in *rotval* to t=0?')
+                    back_to_zero = False if answer == 'n' else True
+                    self._shift_tab(amt=-2)
                 elif not keep_varying:
-                    # WHY DID I DO THAT INSTEAD OF USING _last_RV_built???
-#                    RV_built = self._rotation_builder(self._last_rotval)
-#                    self._last_rotval = RV_built[-1]  # Change gets passed below
+                    self._shift_tab(amt=-1)
+                    ## THINK THIS IS OK BUT DOUBLE-CHECK???
                     self._last_rotval = self._last_RV_built[-1]  # Change gets passed below
+                
+                print('')
             
-            if back_to_zero == True:
-                self.spin_history,self.timeval_rot = self._reset_rot_times(_makenew=False)
+            if back_to_zero:
+                self.spin_history,self.timeval_rot = self._alter_rot_times(_makenew=False,_reset=True)
             else:
                 # Probably don't need to check _has_T_evolved: you shouldn't be here unless it has.
                 # But I'm leaving it for now, just in case. Can't hurt. :-)
@@ -1245,7 +1374,7 @@ class parcel(object):
                 the_sign = -1.0 if self.Wadvec < 0 else 1.0
                 delta_longs = np.diff(self.longs_evolve,n=1,axis=0) % (the_sign*2.0*pi)
 
-                for i in range(1,len(self.timeval)):
+                for i in range(1,self.timeval.size):
                     # Stellar flux is constant for circular orbits, F(t)/Fmax = 1.
                     delta_Tvals = (1.0/self.recirc_effic)*(self.illumination[i-1,:] - (Tvals_evolve[i-1,:]**4))*delta_longs[i-1,:]
                     Tvals_evolve[i,:] = Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
@@ -1263,7 +1392,7 @@ class parcel(object):
             else:
                 delta_radtime = np.ediff1d(self.timeval)/self.radiate_time
 
-                for i in range(1,len(self.timeval)):
+                for i in range(1,self.timeval.size):
                     delta_Tvals = (scaled_illum[i-1,:] - (Tvals_evolve[i-1,:]**4))*delta_radtime[i-1]
                     Tvals_evolve[i,:] = Tvals_evolve[i-1,:] + delta_Tvals  # Step-by-step T update
         
@@ -1272,19 +1401,23 @@ class parcel(object):
     ## ADD WAY TO AUTOMATE EVOLVING UNTIL SOME EQUILIBRIUM IS REACHED? ##
     def Evolve_AtmoTemps(self):
         """Something something else."""
+        self._shift_tab(amt=None)
+        
         t_i,s = (-1,'Re-heating') if self._has_T_evolved else (0,'Heating')
         start_Tvals = self.Tvals_evolve[t_i,:]
         
+        self._dyn_print(s+' {:}...'.format(self.name),amt=1)
         self._update_params_before_evolve()
         o_start,o_end = self.trackorbs[[0,-1]]
-        print(s+' {:}, orbits {:.2f} to {:.2f} ... '.format(self.name,o_start,o_end),end='')
+        self._dyn_print('...Moving through orbits {:.2f} to {:.2f}...'.format(o_start,o_end),amt=-1)
 
         self.Tvals_evolve = self._diff_eq_tempvals(start_Tvals)
         self._has_T_evolved = True
         self._should_add_orbtime = True
         self._should_add_rottime = True
         
-        print('Evolving complete')
+        self._dyn_print('Evolving complete',amt=None)
+        print(self._method_delim)
         return
     
     
@@ -1294,14 +1427,13 @@ class parcel(object):
         """Something something else."""
         quit_out = False
         if not self._has_T_evolved and not _extra:
-            print('Data Flag: You have not baked '+self.name+' since mixing in some new parameters.')
+            self._dyn_print('Data Flag: You have not baked '+self.name+' since mixing in some new parameters.',amt=1)
             if self.Tvals_evolve.shape[0] == self.timeval.size:
-                print('    I am using the calculated temperatures from before, but they may not be accurate now.')
+                self._dyn_print('I am using the calculated temperatures from before, but they may not be accurate now.',amt=0)
             else:
                 quit_out = True
-                print('    There are no calculated temperatures right now, so you can\'t run *'+which+'* yet.')
-            print('    Please run *Evolve_AtmoTemps* and then things should be good. :-)')
-            print('')
+                self._dyn_print('There are no calculated temperatures right now, so you can\'t run *'+which+'* yet.',amt=0)
+            self._dyn_print('Please run *Evolve_AtmoTemps* and then things should be good. :-)',amt=-1)
         return quit_out
     
     def _final_orbit_index(self):
@@ -1649,20 +1781,13 @@ class parcel(object):
             i_start,i_end = 0,self.timeval.size
             bad_begin = True
         else:
-            ## ADD: PARE DOWN BY COMBINING argmax/min INTO A func IF-STATEMENT.
-            if begins == 'periast':
-                fi_end = np.argmax(np.cos(self.tru_anom[fin_orb_start:]))
-            elif begins == 'apast':
-                fi_end = np.argmin(np.cos(self.tru_anom[fin_orb_start:]))
-            elif begins == 'transit':
-                fi_end = np.argmax(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 0 phase
-            elif begins == 'eclipse':
-                fi_end = np.argmin(np.cos(np.radians(self.alpha[fin_orb_start:])))  # At 180 phase
-            elif begins == 'ascend':
-                fi_end = np.argmax(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 90 phase
-            elif begins == 'descend':
-                fi_end = np.argmin(np.sin(np.radians(self.alpha[fin_orb_start:])))  # At 270 phase
-            
+            # The possible *begins*, with (fun trig angle) checks:
+            # periast (xct), apast (nct), transit (xca), eclipse (nca), ascend (xsa), descend (nsa)
+            fun = np.argmax if begins in ['periast','transit','ascend'] else np.argmin
+            trig = np.sin if begins in ['ascend','descend'] else np.cos
+            angle = self.tru_anom[fin_orb_start:] if begins in ['periast','apast'] else np.radians(self.alpha[fin_orb_start:])
+            fi_end = fun(trig(angle))
+
             if (fi_end + fin_orb_start) < self.stepsPerOrb:
                 # Can't use this *begins* so final orbit instead.
                 fi_end = self.stepsPerOrb - 1
@@ -1677,10 +1802,10 @@ class parcel(object):
     def _light_times(self,i_start,i_end):
         """Blah blah blah."""
         t_act = self.timeval[i_start:i_end]
-        t_start,t_end = t_act[0],t_act[-1]
+        t_start,t_end = t_act[[0,-1]]
         
-        o_start = self.trackorbs[i_start]
-        t_rel = self.trackorbs[i_start:i_end] - o_start
+        o_start = t_start/self.Porb  # For current orbit, not cumulative from *trackorbs*.
+        t_rel = self.trackorbs[i_start:i_end] - self.trackorbs[i_start]
         return t_act,t_start,t_end,o_start,t_rel
     
     def _prop_plotter(self,axlig,t_a,t_start,f_terp,ol_sty,y_mark,_combo,_inc):
@@ -1729,8 +1854,8 @@ class parcel(object):
             return
         
         if begins not in self._accept_begins:
-            print('Draw_LightCurve error: strings for *begins* are')
-            print(self._accept_begins)
+            self._dyn_print('Draw_LightCurve error: strings for *begins* are',amt=1)
+            self._dyn_print(self._accept_begins,amt=None)
             plt.close()  # Remove WIP plot if combo method
             return
         
