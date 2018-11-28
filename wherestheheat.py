@@ -1171,39 +1171,63 @@ class parcel(object):
         self._shift_tab(amt=None)
         print(self._method_delim)
         return wiz_rotval
-
-    def HowRotChanges(self,draw_period=False,spike_limit=None):
+    
+    def _daybased_convert(self,use_periods,per,freq):
+        """Blah blah blah."""
+        if use_periods:
+            wp = per/self.sec_per_day
+        else:
+            wp = np.degrees(freq)*self.sec_per_day
+        
+        if not isinstance(wp,np.ndarray):
+            wp *= np.ones(self.timeval_rot.shape)
+        return wp
+    
+    ### PICK UP HERE, LOOKING GOOD! ANY MORE ADD-ONS?
+    def HowRotChanges(self,use_periods=False,include_orb=True,include_advec=False,
+                      spike_limit=None,mark_zero=True):
         """Blah blah blah."""
         fig_howrot,axhow = plt.subplots(figsize=(7,7))
         
-        if draw_period:
-            fp_vals = self.Prot/self.sec_per_day
-            vert = 'Rotational Period (days)'
-        else:
-            fp_vals = np.degrees(self.Wrot)*self.sec_per_day
-            vert = 'Rotational Frequency (degrees / day)'
         rel_time = self.timeval_rot/self.Porb
-
-        axhow.plot(rel_time,fp_vals,c='k',lw=2,zorder=2)
-        axhow.axhline(0,c='0.5',ls=':',zorder=1)
+        vert = 'Period (days)' if use_periods else 'Angular Frequency (degrees / day)'
+        c_ro = '0.75' if include_advec else 'k'
         
-        if spike_limit != None:
-            lo,hi = np.amin(fp_vals),np.amax(fp_vals)
-            if draw_period:
-                cutoff = spike_limit*(self.Porb/self.sec_per_day)
+        wp_rots = self._daybased_convert(use_periods,self.Prot,self.Wrot)
+        axhow.plot(rel_time,wp_rots,c=c_ro,lw=2,zorder=3,label='Rotational')
+        
+        wp_orbs = self._daybased_convert(use_periods,self.Porb,self.Worb)
+        if include_orb:
+            axhow.plot(rel_time,wp_orbs,c=c_ro,ls='--',lw=1.5,zorder=2,label='Orbital')
+        
+        make_p = lambda w: np.inf if w == 0 else 2.0*pi/abs(w)
+        w_to_p = np.vectorize(make_p) if isinstance(self.Wadvec,np.ndarray) else make_p
+        wp_advs = self._daybased_convert(use_periods,w_to_p(self.Wadvec),self.Wadvec)
+        if include_advec:
+            axhow.plot(rel_time,wp_advs,c='k',ls='-.',lw=2,zorder=4,label='Advective')
+        
+        if mark_zero:
+            axhow.axhline(0,c='0.5',ls=':',zorder=1)
+        
+        if isinstance(spike_limit,(float,int)):
+            test_wp = wp_advs if include_advec else wp_rots
+            lo,hi = np.amin(test_wp),np.amax(test_wp)
+            cutoff = spike_limit*np.amax(np.absolute(wp_orbs))
+            if use_periods:
                 f = 0.05  # Padding factor
                 v_low,v_high = (-f*cutoff,cutoff) if hi > cutoff else (None,None)
             else:
-                Wo_deg = np.degrees(np.amax(np.absolute(self.Worb)))
-                cutoff = spike_limit*(Wo_deg*self.sec_per_day)
                 v_low = -cutoff if lo < -cutoff else None
                 v_high = cutoff if hi > cutoff else None
 
             axhow.set_ylim(v_low,v_high)
 
+        axhow.set_title('Variable Motion of '+self.name)
         axhow.set_xlabel('Relative Time (orbits)')
         axhow.set_ylabel(vert)
-        
+
+        axhow.legend(loc='best')
+
         fig_howrot.tight_layout()
         self.fig_howrot = fig_howrot
         plt.show()
