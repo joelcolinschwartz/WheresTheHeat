@@ -35,6 +35,8 @@ from scipy import integrate
 from scipy import interpolate
 from PyAstronomy import pyasl
 
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 pi = np.pi
 
 with np.load('planck_integrals_1to10000K_01to30um.npz') as data:
@@ -1525,17 +1527,12 @@ class parcel(object):
         self._orth_grat_longs(axmap,far_side,rel_ssp,rel_angs,grat_sinclats_,grat_cosclats_,mc,sc)
         return
 
-    def _orth_cbar(self,axmap,new_map,low,high,far_side,_combo,_cax):
+    def _orth_cbar(self,axbar,new_map,low,high,far_side):
         """Something something else."""
-        if _combo:
-            cb = plt.colorbar(new_map,cax=_cax,orientation='vertical',ticks=[low,high])
-            tx,ty,r = 1.75,0.5,'vertical'
-        else:
-            wid = lambda fs: 0.4 if fs else 0.6
-            cb = plt.colorbar(new_map,ax=axmap,orientation='horizontal',shrink=wid(far_side),
-                              aspect=25,ticks=[low,high],pad=0.05,fraction=0.1)
-            tx,ty,r = 0.5,-1.0,'horizontal'
+        cb = plt.colorbar(new_map,cax=axbar,orientation='horizontal',ticks=[low,high])
         
+        ty = -0.75 if far_side else -1.0
+        tx,r = 0.5,'horizontal'
         unit_of_T = r'Normalized Temperature $(T \ / \ T_{0})$'
         cb.ax.text(tx,ty,unit_of_T,rotation=r,fontsize='large',ha='center',va='center',
                    transform=cb.ax.transAxes)
@@ -1571,7 +1568,7 @@ class parcel(object):
         low,high = self._orth_bounds(force_contrast,heat_map)
         
         # Get the picture from orthview to re-style; lucky 13!!
-        xpix,hsiz,xval = (2400,14,2) if far_side else (1200,7,1)
+        xpix,hsiz,bcut,xval = (2400,11,2,2) if far_side else (1200,7,1,1)
         pic_map = hp.visufunc.orthview(fig=13,map=heat_map,rot=(sop_rot,0,0),flip='geo',
                                        min=low,max=high,cmap=inferno_mod_,
                                        half_sky=not(far_side),xsize=xpix,return_projected_map=True)
@@ -1579,8 +1576,11 @@ class parcel(object):
         
         if _combo:
             axmap = _axuse
+            axbar = _cax
         else:
-            fig_orth,axmap = plt.subplots(figsize=(hsiz,7))
+            fig_orth = plt.figure(figsize=(hsiz,7))
+            axmap = plt.subplot2grid((15,hsiz),(0,0),rowspan=14,colspan=hsiz,fig=fig_orth)
+            axbar = plt.subplot2grid((15,hsiz),(14,bcut),rowspan=1,colspan=(hsiz-2*bcut),fig=fig_orth)
 
         new_map = axmap.imshow(pic_map,origin='lower',extent=[-xval,xval,-1,1],
                                vmin=low,vmax=high,cmap=inferno_mod_)
@@ -1601,11 +1601,11 @@ class parcel(object):
         else:
             descrip = r' at $%.2f^{\circ}$ orbital phase' % self.alpha[i_want]
         axmap.set_title(self.name + descrip)
-        self._orth_cbar(axmap,new_map,low,high,far_side,_combo,_cax)
+        self._orth_cbar(axbar,new_map,low,high,far_side)
 
         if far_side:
-            axmap.text(-1,-1.06,'Observer Side',size='large',ha='right',va='center')
-            axmap.text(1,-1.06,'Far Side',size='large',ha='left',va='center')
+            axmap.text(-1,-1.08,'Observer Side',size='large',ha='left',va='center')
+            axmap.text(1,-1.08,'Far Side',size='large',ha='right',va='center')
 
         axmap.axes.get_xaxis().set_visible(False)
         axmap.axes.get_yaxis().set_visible(False)
@@ -1621,13 +1621,14 @@ class parcel(object):
         return
 
 
-    def _combo_faxmaker(self,sr,sc):
+    ### PICK UP HERE NEXT TIME AND EXTEND TO A GENERAL COMBO FIGURE.
+    def _combo_faxmaker(self,figsize,srow,scol,bcut):
         """Blah blah blah."""
-        Nc,d = (2*sc)+1,sc/sr
-        f_com = plt.figure(figsize=(Nc/d,sr))
-        _axl = plt.subplot2grid((1,Nc),(0,0),rowspan=1,colspan=sc,fig=f_com)
-        _axr = plt.subplot2grid((1,Nc),(0,sc),rowspan=1,colspan=sc,fig=f_com)
-        _cax = plt.subplot2grid((1,Nc),(0,2*sc),rowspan=1,colspan=1,fig=f_com)
+        f_com = plt.figure(figsize=figsize)
+        spec = (srow,2*scol)
+        _axl = plt.subplot2grid(spec,(0,0),rowspan=srow,colspan=scol,fig=f_com)
+        _axr = plt.subplot2grid(spec,(0,scol),rowspan=(srow-1),colspan=scol,fig=f_com)
+        _cax = plt.subplot2grid(spec,(srow-1,scol+bcut),rowspan=1,colspan=(scol-2*bcut),fig=f_com)
         return f_com,_axl,_axr,_cax
 
     def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_contrast=False):
@@ -1636,15 +1637,15 @@ class parcel(object):
         if quit_out:
             return
         
-        fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
-        
+        fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
+
         # Return phase position before drawing orbit
         _phxyz = self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
                                   _combo=True,_axuse=_axmap,_cax=_cax)
         
         self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb,_phxyz=_phxyz)
             
-        fig_orborth.tight_layout(w_pad=1)
+        fig_orborth.tight_layout(w_pad=0)
         self.fig_orborth = fig_orborth
         plt.show()
         return
@@ -1977,7 +1978,7 @@ class parcel(object):
         if quit_out:
             return
         
-        fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(sr=7,sc=14)
+        fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
         
         # Return correct phase index to override calc in Orth_Mapper
         _i_phase = self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
@@ -1994,7 +1995,7 @@ class parcel(object):
         if show_legend:
             _axlig.legend(loc='best')
       
-        fig_lcorth.tight_layout(w_pad=1)
+        fig_lcorth.tight_layout(w_pad=0)
         self.fig_lcorth = fig_lcorth
         plt.show()
         return
