@@ -1187,9 +1187,12 @@ class parcel(object):
     
     ### PICK UP HERE, LOOKING GOOD! ANY MORE ADD-ONS?
     def HowRotChanges(self,use_periods=False,include_orb=True,include_advec=False,
-                      spike_limit=None,mark_zero=True):
+                      spike_limit=None,mark_zero=True,_combo=False,_axuse=None):
         """Blah blah blah."""
-        fig_howrot,axhow = plt.subplots(figsize=(7,7))
+        if _combo:
+            axhow = _axuse
+        else:
+            fig_howrot,axhow = plt.subplots(figsize=(7,7))
         
         rel_time = self.timeval_rot/self.Porb
         vert = 'Period (days)' if use_periods else 'Angular Frequency (degrees / day)'
@@ -1229,10 +1232,11 @@ class parcel(object):
         axhow.set_ylabel(vert)
 
         axhow.legend(loc='best')
-
-        fig_howrot.tight_layout()
-        self.fig_howrot = fig_howrot
-        plt.show()
+        
+        if not _combo:
+            fig_howrot.tight_layout()
+            self.fig_howrot = fig_howrot
+            plt.show()
         return
     
     
@@ -1619,9 +1623,8 @@ class parcel(object):
             return self.orb_pos[i_want,:]
         
         return
-
-
-    ### PICK UP HERE NEXT TIME AND EXTEND TO A GENERAL COMBO FIGURE.
+    
+    
     def _combo_faxmaker(self,figsize,srow,scol,bcut):
         """Blah blah blah."""
         f_com = plt.figure(figsize=figsize)
@@ -1999,7 +2002,72 @@ class parcel(object):
         self.fig_lcorth = fig_lcorth
         plt.show()
         return
+    
+    
+    ### General Combo plots
+    def _combo_specs(self,axis,srow,scol):
+        """Blah blah blah."""
+        rs,cs = srow,scol
 
+        if axis == 'globe':
+            rs -= 1
+        elif axis in ['light','motion']:
+            l_test = (axis == 'light') and (False)
+            m_test = (axis == 'motion') and (False)
+            if l_test or m_test:
+                cs *= 2
+
+        return rs,cs
+
+    def _new_combo_faxmaker(self,want_axes):
+        """Blah blah blah."""
+        srow,scol,bcut = 15,7,1
+
+        rs_zero,cs_zero = self._combo_specs(want_axes[0],srow,scol)
+        rs_one,cs_one = self._combo_specs(want_axes[1],srow,scol)
+        nc = int((cs_zero + cs_one)/scol)
+
+        if nc == 4:
+            fsiz = (10,10)
+            spec = (2*srow,2*scol)
+            loc_one = (rs_zero,0)
+        else:
+            fsiz = (nc*7,7)
+            spec = (srow,nc*scol)
+            loc_one = (0,cs_zero)
+
+        f_com = plt.figure(figsize=fsiz)
+        _axzero = plt.subplot2grid(spec,(0,0),rowspan=rs_zero,colspan=cs_zero,fig=f_com)
+        _axone = plt.subplot2grid(spec,loc_one,rowspan=rs_one,colspan=cs_one,fig=f_com)
+        if 'globe' in want_axes:
+            loc_bar,cs_bar = (((rs_zero,bcut),(cs_zero - 2*bcut)) if want_axes[0] == 'globe' else
+                              ((rs_one,cs_zero+bcut),(cs_one - 2*bcut)))
+            _axbar = plt.subplot2grid(spec,loc_bar,rowspan=1,colspan=cs_bar,fig=f_com)
+        else:
+            _axbar = None
+
+        return f_com,[_axzero,_axone],_axbar
+
+    ### PICK UP HERE, GOOD START, NOW IMPROVE!!!
+    def ComboGraphics(self,want_axes=['orbit','light']):
+        """Mix and Match!"""
+        fig_combo,_axlis,_axbar = self._new_combo_faxmaker(want_axes)
+        
+        for i in range(len(want_axes)):
+            
+            if want_axes[i] == 'orbit':
+                self.Draw_OrbitOverhead(_combo=True,_axuse=_axlis[i])
+            elif want_axes[i] == 'light':
+                self.Draw_LightCurve(_combo=True,_axuse=_axlis[i])
+            elif want_axes[i] == 'globe':
+                _phxyz = self.Orth_Mapper(150,_combo=True,_axuse=_axlis[i],_cax=_axbar)
+            elif want_axes[i] == 'motion':
+                self.HowRotChanges(_combo=True,_axuse=_axlis[i])
+        
+        plt.tight_layout()
+        self.fig_combo = fig_combo
+        plt.show()
+        return
 
     ### Temperature methods
 
