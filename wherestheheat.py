@@ -1314,7 +1314,7 @@ class parcel(object):
             axorb.legend(loc='best')
 
         axorb.set_aspect('equal')
-        
+
         if not _combo:
             fig_orbit.tight_layout()
             self.fig_orbit = fig_orbit
@@ -2009,7 +2009,7 @@ class parcel(object):
         """Blah blah blah."""
         rs,cs = srow,scol
 
-        if axis == 'globe':
+        if axis == 'ortho':
             rs -= 1
         elif axis in ['light','motion']:
             l_test = (axis == 'light') and (False)
@@ -2032,38 +2032,85 @@ class parcel(object):
             spec = (2*srow,2*scol)
             loc_one = (rs_zero,0)
         else:
-            fsiz = (nc*7,7)
-            spec = (srow,nc*scol)
-            loc_one = (0,cs_zero)
+            fpad,cpad = (0,0) if ('ortho' in want_axes) else (1,1)  ### (1,1) seems best
+            fsiz = ((nc*7)+fpad,7)
+            spec = (srow,(nc*scol)+cpad)
+            loc_one = (0,cs_zero+cpad)
 
         f_com = plt.figure(figsize=fsiz)
         _axzero = plt.subplot2grid(spec,(0,0),rowspan=rs_zero,colspan=cs_zero,fig=f_com)
         _axone = plt.subplot2grid(spec,loc_one,rowspan=rs_one,colspan=cs_one,fig=f_com)
-        if 'globe' in want_axes:
-            loc_bar,cs_bar = (((rs_zero,bcut),(cs_zero - 2*bcut)) if want_axes[0] == 'globe' else
+        if 'ortho' in want_axes:
+            loc_bar,cs_bar = (((rs_zero,bcut),(cs_zero - 2*bcut)) if want_axes[0] == 'ortho' else
                               ((rs_one,cs_zero+bcut),(cs_one - 2*bcut)))
             _axbar = plt.subplot2grid(spec,loc_bar,rowspan=1,colspan=cs_bar,fig=f_com)
         else:
             _axbar = None
 
         return f_com,[_axzero,_axone],_axbar
+    
+    ### temp area: function calls for ComboGraphics
+#    LightCurve
+#    wave_band=False,a_microns=6.5,b_microns=9.5,
+#        run_integrals=False,bolo=False,begins='periast',multi_orbit=False,
+#            _combo=False,_axuse=None,_phase=None,_relperi=None
+#
+#    Orth_Mapper
+#    phase,relative_periast=False,force_contrast=False,far_side=False,
+#        _combo=False,_axuse=None,_cax=None,_i_phase=None
+#
+#    OrbitOverhead
+#    show_legend=True,_combo=False,_axuse=None,_phxyz=None
+#
+#    HowRotChange
+#    use_periods=False,include_orb=True,include_advec=False,
+#        spike_limit=None,mark_zero=True,_combo=False,_axuse=None
+    ###
 
-    ### PICK UP HERE, GOOD START, NOW IMPROVE!!!
-    def ComboGraphics(self,want_axes=['orbit','light']):
+    def _group_combo_kwargs(self,want_axes,**kwargs):
+        """Something!"""
+        good_kwargs = [None,None]
+        
+        for i in range(2):
+            wax = want_axes[i]
+            
+            if wax == 'light':
+                kw_names = ('wave_band','a_microns','b_microns','run_integrals','bolo','begins','multi_orbit')
+            elif wax == 'ortho':
+                kw_names = ('relative_periast','force_contrast','far_side')
+            elif wax == 'orbit':
+                kw_names = ('show_legend','_notarealword_')  # Dummy to loop strings below, not each character!
+            elif wax == 'motion':
+                kw_names = ('use_periods','include_orb','include_advec','spike_limit','mark_zero')
+            
+            full_kw = {key:kwargs.get(key,'_null') for key in kw_names}
+            good_kwargs[i] = {key:val for key,val in full_kw.items() if val is not '_null'}
+        
+        return good_kwargs
+
+    ### PICK UP HERE, LOOKING GOOD! NEEDS TWEAKS TO USE ALL THE HIDDEN KEYWORDS.
+    def ComboGraphics(self,want_axes=['orbit','light'],**kwargs):
         """Mix and Match!"""
         fig_combo,_axlis,_axbar = self._new_combo_faxmaker(want_axes)
+        good_kwargs = self._group_combo_kwargs(want_axes,**kwargs)
         
-        for i in range(len(want_axes)):
-            
-            if want_axes[i] == 'orbit':
-                self.Draw_OrbitOverhead(_combo=True,_axuse=_axlis[i])
-            elif want_axes[i] == 'light':
-                self.Draw_LightCurve(_combo=True,_axuse=_axlis[i])
-            elif want_axes[i] == 'globe':
-                _phxyz = self.Orth_Mapper(150,_combo=True,_axuse=_axlis[i],_cax=_axbar)
-            elif want_axes[i] == 'motion':
-                self.HowRotChanges(_combo=True,_axuse=_axlis[i])
+        phase = kwargs.get('phase',180)  # In case it is not given
         
+        dex = lambda nm,wa: 0 if nm == wa[0] else 1
+        
+        if 'light' in want_axes:
+            i = dex('light',want_axes)
+            self.Draw_LightCurve(_combo=True,_axuse=_axlis[i],**good_kwargs[i])
+        if 'ortho' in want_axes:
+            i = dex('ortho',want_axes)
+            _phxyz = self.Orth_Mapper(phase,_combo=True,_axuse=_axlis[i],_cax=_axbar,**good_kwargs[i])
+        if 'orbit' in want_axes:
+            i = dex('orbit',want_axes)
+            self.Draw_OrbitOverhead(_combo=True,_axuse=_axlis[i],**good_kwargs[i])
+        if 'motion' in want_axes:
+            i = dex('orbit',want_axes)
+            self.HowRotChanges(_combo=True,_axuse=_axlis[i],**good_kwargs[i])
+    
         plt.tight_layout()
         self.fig_combo = fig_combo
         plt.show()
