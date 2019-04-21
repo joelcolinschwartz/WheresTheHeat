@@ -1462,7 +1462,7 @@ class parcel(object):
                 self._dyn_print('I am using the calculated temperatures from before, but they may not be accurate now.',amt=0)
             else:
                 quit_out = True
-                self._dyn_print('There are no calculated temperatures right now, so you can\'t run *'+which+'* yet.',amt=0)
+                self._dyn_print('There are no calculated temperatures right now, so you cannot run *'+which+'* yet.',amt=0)
             self._dyn_print('Please run *Evolve_AtmoTemps* and then things should be good. :-)',amt=-1)
         return quit_out
     
@@ -1614,45 +1614,47 @@ class parcel(object):
         axmap.axes.get_xaxis().set_visible(False)
         axmap.axes.get_yaxis().set_visible(False)
         axmap.axis('off')
-
-        if not _combo:
-            fig_orth.tight_layout()
-            self.fig_orth = fig_orth
-            plt.show()
-        elif _i_phase == None:
-            return self.orb_pos[i_want,:]
         
-        return
-    
-    
-    def _combo_faxmaker(self,figsize,srow,scol,bcut):
-        """Blah blah blah."""
-        f_com = plt.figure(figsize=figsize)
-        spec = (srow,2*scol)
-        _axl = plt.subplot2grid(spec,(0,0),rowspan=srow,colspan=scol,fig=f_com)
-        _axr = plt.subplot2grid(spec,(0,scol),rowspan=(srow-1),colspan=scol,fig=f_com)
-        _cax = plt.subplot2grid(spec,(srow-1,scol+bcut),rowspan=1,colspan=(scol-2*bcut),fig=f_com)
-        return f_com,_axl,_axr,_cax
-
-    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_contrast=False):
-        """Blah blah blah."""
-        quit_out = self._can_make_the_fig('Combo_OrbitOrth',False)
-        if quit_out:
-            return
+        if _combo:
+            # Could you need position for Draw_OrbitOverhead?
+            _phxyz = self.orb_pos[i_want,:] if (_i_phase == None) else None
+            return _phxyz
         
-        fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
-
-        # Return phase position before drawing orbit
-        _phxyz = self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
-                                  _combo=True,_axuse=_axmap,_cax=_cax)
-        
-        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb,_phxyz=_phxyz)
-            
-        fig_orborth.tight_layout(w_pad=0)
-        self.fig_orborth = fig_orborth
+        fig_orth.tight_layout()
+        self.fig_orth = fig_orth
         plt.show()
+
         return
     
+    
+#    def _combo_faxmaker(self,figsize,srow,scol,bcut):
+#        """Blah blah blah."""
+#        f_com = plt.figure(figsize=figsize)
+#        spec = (srow,2*scol)
+#        _axl = plt.subplot2grid(spec,(0,0),rowspan=srow,colspan=scol,fig=f_com)
+#        _axr = plt.subplot2grid(spec,(0,scol),rowspan=(srow-1),colspan=scol,fig=f_com)
+#        _cax = plt.subplot2grid(spec,(srow-1,scol+bcut),rowspan=1,colspan=(scol-2*bcut),fig=f_com)
+#        return f_com,_axl,_axr,_cax
+
+#    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_contrast=False):
+#        """Blah blah blah."""
+#        quit_out = self._can_make_the_fig('Combo_OrbitOrth',False)
+#        if quit_out:
+#            return
+#
+#        fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
+#
+#        # Return phase position before drawing orbit
+#        _phxyz = self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
+#                                  _combo=True,_axuse=_axmap,_cax=_cax)
+#
+#        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb,_phxyz=_phxyz)
+#
+#        fig_orborth.tight_layout(w_pad=0)
+#        self.fig_orborth = fig_orborth
+#        plt.show()
+#        return
+
 
     ### Blackbody methods
     
@@ -1881,11 +1883,13 @@ class parcel(object):
         if quit_out:
             return
         
-        if begins not in self._accept_begins:
-            self._dyn_print('Draw_LightCurve error: strings for *begins* are',amt=1)
-            self._dyn_print(self._accept_begins,amt=None)
-            plt.close()  # Remove WIP plot if combo method
-            return
+        if begins in self._accept_begins:
+            dlc_begins = begins
+        else:
+            self._dyn_print('Draw_LightCurve warning: strings for *begins* are',amt=1)
+            self._dyn_print(str(self._accept_begins)+'.',amt=0)
+            self._dyn_print('Your string is not valid, so I am using \'periast\' instead.',amt=None)
+            dlc_begins = 'periast'
         
         lightcurve_flux = self.Observed_Flux(wave_band,a_microns,b_microns,
                                              'obs',run_integrals,bolo,False,
@@ -1895,7 +1899,7 @@ class parcel(object):
         else:
             fig_light,axlig = plt.subplots(figsize=(7,7))
         
-        i_start,i_end,bad_begin = self._light_indices(begins)
+        i_start,i_end,bad_begin = self._light_indices(dlc_begins)
         lcf_use = lightcurve_flux[i_start:i_end]
         t_act,t_start,t_end,o_start,t_rel = self._light_times(i_start,i_end)
         
@@ -1908,6 +1912,8 @@ class parcel(object):
                 _diff_phase = np.radians(_phase - self.alpha[i_start:i_end])
             _i_phase = np.argmax(np.cos(_diff_phase)) + i_start
             _time_phase = self.timeval[_i_phase] % self.Porb
+        else:
+            _i_phase = None
 
         axlig.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
         if multi_orbit:
@@ -1939,70 +1945,70 @@ class parcel(object):
                 self._prop_plotcheck(axlig,_time_phase,o_start,t_start,t_end,f_terp,
                                      orbloc_styles_['phase'],y_mark,_combo)
         
-        self._light_window(axlig,lc_high,f_y,orbloc_styles_[begins],bad_begin)
-        
-        if not _combo:
-            fig_light.tight_layout()
-            self.fig_light = fig_light
-            plt.show()
-        elif _phase != None:
+        self._light_window(axlig,lc_high,f_y,orbloc_styles_[dlc_begins],bad_begin)
+
+        if _combo:
             return _i_phase
+
+        fig_light.tight_layout()
+        self.fig_light = fig_light
+        plt.show()
 
         return
     
     
-    def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
-                      run_integrals=False,bolo=False,begins='periast',multi_orbit=False):
-        """Blah blah blah."""
-        quit_out = self._can_make_the_fig('Combo_OrbitLC',False)
-        if quit_out:
-            return
-        
-        fig_orblc = plt.figure(figsize=(14,7))
-        
-        _axorb = plt.subplot(121)
-        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb)
-        
-        _axlig = plt.subplot(122)
-        self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-                             begins,multi_orbit,_combo=True,_axuse=_axlig)
-        
-        fig_orblc.tight_layout(w_pad=2)
-        self.fig_orblc = fig_orblc
-        plt.show()
-        return
+#    def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
+#                      run_integrals=False,bolo=False,begins='periast',multi_orbit=False):
+#        """Blah blah blah."""
+#        quit_out = self._can_make_the_fig('Combo_OrbitLC',False)
+#        if quit_out:
+#            return
+#
+#        fig_orblc = plt.figure(figsize=(14,7))
+#
+#        _axorb = plt.subplot(121)
+#        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb)
+#
+#        _axlig = plt.subplot(122)
+#        self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
+#                             begins,multi_orbit,_combo=True,_axuse=_axlig)
+#
+#        fig_orblc.tight_layout(w_pad=2)
+#        self.fig_orblc = fig_orblc
+#        plt.show()
+#        return
+
     
-    
-    def Combo_LCOrth(self,phase,relative_periast=False,force_contrast=False,
-                     wave_band=False,a_microns=6.5,b_microns=9.5,
-                     run_integrals=False,bolo=False,begins='periast',multi_orbit=False,show_legend=True):
-        """Blah blah blah."""
-        quit_out = self._can_make_the_fig('Combo_LCOrth',False)
-        if quit_out:
-            return
-        
-        fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
-        
-        # Return correct phase index to override calc in Orth_Mapper
-        _i_phase = self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-                                        begins,multi_orbit,_combo=True,_axuse=_axlig,
-                                        _phase=phase,_relperi=relative_periast)
-        
-        # Check if light curve quit with bad *begins*
-        if _i_phase == None:
-            return
-        
-        self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
-                         _combo=True,_axuse=_axmap,_cax=_cax,_i_phase=_i_phase)
-                         
-        if show_legend:
-            _axlig.legend(loc='best')
-      
-        fig_lcorth.tight_layout(w_pad=0)
-        self.fig_lcorth = fig_lcorth
-        plt.show()
-        return
-    
+#    def Combo_LCOrth(self,phase,relative_periast=False,force_contrast=False,
+#                     wave_band=False,a_microns=6.5,b_microns=9.5,
+#                     run_integrals=False,bolo=False,begins='periast',multi_orbit=False,show_legend=True):
+#        """Blah blah blah."""
+#        quit_out = self._can_make_the_fig('Combo_LCOrth',False)
+#        if quit_out:
+#            return
+#
+#        fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
+#
+#        # Return correct phase index to override calc in Orth_Mapper
+#        _i_phase = self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
+#                                        begins,multi_orbit,_combo=True,_axuse=_axlig,
+#                                        _phase=phase,_relperi=relative_periast)
+#
+#        # Check if light curve quit with bad *begins*
+#        if _i_phase == None:
+#            return
+#
+#        self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
+#                         _combo=True,_axuse=_axmap,_cax=_cax,_i_phase=_i_phase)
+#
+#        if show_legend:
+#            _axlig.legend(loc='best')
+#
+#        fig_lcorth.tight_layout(w_pad=0)
+#        self.fig_lcorth = fig_lcorth
+#        plt.show()
+#        return
+
     
     ### General Combo plots
     def _combo_specs(self,axis,srow,scol):
@@ -2088,33 +2094,63 @@ class parcel(object):
         
         return good_kwargs
 
-    ### PICK UP HERE, LOOKING GOOD! NEEDS TWEAKS TO USE ALL THE HIDDEN KEYWORDS.
+    ### LOOKING GOOD! NEED MORE TWEAKS? HOW TO ADD legend WITH NO orbit AXES?
     def ComboGraphics(self,want_axes=['orbit','light'],**kwargs):
         """Mix and Match!"""
+        if ('light' in want_axes) or ('ortho' in want_axes):
+            # The 'orbit' + 'motion' pair would be fine.
+            quit_out = self._can_make_the_fig('ComboGraphics',False)
+            if quit_out:
+                return
+        
         fig_combo,_axlis,_axbar = self._new_combo_faxmaker(want_axes)
         good_kwargs = self._group_combo_kwargs(want_axes,**kwargs)
         
-        phase = kwargs.get('phase',180)  # In case it is not given
+        # Check for phase and related
+        phase = kwargs.get('phase','_null')
+        if 'ortho' in want_axes:
+            if phase == '_null':
+                self._dyn_print('ComboGraphics warning: need *phase* in degrees for \'ortho\' axes.',amt=1)
+                self._dyn_print('You did not give a value, so I am using 180 deg instead.',amt=None)
+                phase = 180
+            _phase,_relperi = phase,kwargs.get('relative_periast',False)
+        else:
+            _phase,_relperi = None,None  # A bad phase should not matter with no 'ortho'.
         
         dex = lambda nm,wa: 0 if nm == wa[0] else 1
         
+        # Make the stuff
+        
         if 'light' in want_axes:
             i = dex('light',want_axes)
-            self.Draw_LightCurve(_combo=True,_axuse=_axlis[i],**good_kwargs[i])
+            # Return index of given phase to override calc in Orth_Mapper
+            _i_phase = self.Draw_LightCurve(_combo=True,_axuse=_axlis[i],
+                                            _phase=_phase,_relperi=_relperi,**good_kwargs[i])
+        else:
+            _i_phase = None
+        
         if 'ortho' in want_axes:
             i = dex('ortho',want_axes)
-            _phxyz = self.Orth_Mapper(phase,_combo=True,_axuse=_axlis[i],_cax=_axbar,**good_kwargs[i])
+            # Return phase position if needed for Draw_OrbitOverhead
+            _phxyz = self.Orth_Mapper(phase,_combo=True,_axuse=_axlis[i],_cax=_axbar,
+                                      _i_phase=_i_phase,**good_kwargs[i])
+        else:
+            _phxyz = None
+
         if 'orbit' in want_axes:
             i = dex('orbit',want_axes)
-            self.Draw_OrbitOverhead(_combo=True,_axuse=_axlis[i],**good_kwargs[i])
+            self.Draw_OrbitOverhead(_combo=True,_axuse=_axlis[i],_phxyz=_phxyz,**good_kwargs[i])
+
         if 'motion' in want_axes:
-            i = dex('orbit',want_axes)
+            i = dex('motion',want_axes)
             self.HowRotChanges(_combo=True,_axuse=_axlis[i],**good_kwargs[i])
     
         plt.tight_layout()
         self.fig_combo = fig_combo
         plt.show()
+        
         return
+    
 
     ### Temperature methods
 
