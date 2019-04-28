@@ -56,9 +56,9 @@ preplancked_waveN_ = len(preplancked_wavelengths_)
 # For general method that converts values to indices
 preplancked_temper_valueinds_ = _make_value_indexer(preplancked_temperatures_)
 
-# Modified inferno colormap
-inferno_mod_ = copy.copy(plt.cm.inferno)
-inferno_mod_.set_under('w')
+# Modified inferno colormap. Probably don't need anymore but hold for now, see Orth_Mapper.
+#inferno_mod_ = copy.copy(plt.cm.inferno)
+#inferno_mod_.set_under('w')
 
 # For custom graticule to draw on planet
 grat_xfactor_ = np.sin(np.radians([30,60,90,120,150]))
@@ -1573,8 +1573,11 @@ class parcel(object):
         
         # Get the picture from orthview to re-style; lucky 13!!
         xpix,hsiz,bcut,xval = (2400,11,2,2) if far_side else (1200,7,1,1)
+        # Seems like using the same perceptually uniform cmap in orthview here and
+        # imshow below makes the background gray in the output for some reason. It's weird.
+        # So I'm putting plasma here and then inferno below (no inferno_mod_ anymore).
         pic_map = hp.visufunc.orthview(fig=13,map=heat_map,rot=(sop_rot,0,0),flip='geo',
-                                       min=low,max=high,cmap=inferno_mod_,
+                                       min=low,max=high,cmap=plt.cm.plasma,
                                        half_sky=not(far_side),xsize=xpix,return_projected_map=True)
         plt.close(13)
         
@@ -1587,7 +1590,7 @@ class parcel(object):
             axbar = plt.subplot2grid((15,hsiz),(14,bcut),rowspan=1,colspan=(hsiz-2*bcut),fig=fig_orth)
 
         new_map = axmap.imshow(pic_map,origin='lower',extent=[-xval,xval,-1,1],
-                               vmin=low,vmax=high,cmap=inferno_mod_)
+                               vmin=low,vmax=high,cmap=plt.cm.inferno)
         self._orth_graticule(axmap,zero_to_sop,far_side)
 
         ### Have my custom graticule now, but keeping this for posterity:
@@ -1627,35 +1630,6 @@ class parcel(object):
         return
     
     
-#    def _combo_faxmaker(self,figsize,srow,scol,bcut):
-#        """Blah blah blah."""
-#        f_com = plt.figure(figsize=figsize)
-#        spec = (srow,2*scol)
-#        _axl = plt.subplot2grid(spec,(0,0),rowspan=srow,colspan=scol,fig=f_com)
-#        _axr = plt.subplot2grid(spec,(0,scol),rowspan=(srow-1),colspan=scol,fig=f_com)
-#        _cax = plt.subplot2grid(spec,(srow-1,scol+bcut),rowspan=1,colspan=(scol-2*bcut),fig=f_com)
-#        return f_com,_axl,_axr,_cax
-
-#    def Combo_OrbitOrth(self,phase,relative_periast=False,show_legend=True,force_contrast=False):
-#        """Blah blah blah."""
-#        quit_out = self._can_make_the_fig('Combo_OrbitOrth',False)
-#        if quit_out:
-#            return
-#
-#        fig_orborth,_axorb,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
-#
-#        # Return phase position before drawing orbit
-#        _phxyz = self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
-#                                  _combo=True,_axuse=_axmap,_cax=_cax)
-#
-#        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb,_phxyz=_phxyz)
-#
-#        fig_orborth.tight_layout(w_pad=0)
-#        self.fig_orborth = fig_orborth
-#        plt.show()
-#        return
-
-
     ### Blackbody methods
     
     def _waveband_to_lowup(self,wave_microns,band_microns):
@@ -1957,60 +1931,8 @@ class parcel(object):
         return
     
     
-#    def Combo_OrbitLC(self,show_legend=True,wave_band=False,a_microns=6.5,b_microns=9.5,
-#                      run_integrals=False,bolo=False,begins='periast',multi_orbit=False):
-#        """Blah blah blah."""
-#        quit_out = self._can_make_the_fig('Combo_OrbitLC',False)
-#        if quit_out:
-#            return
-#
-#        fig_orblc = plt.figure(figsize=(14,7))
-#
-#        _axorb = plt.subplot(121)
-#        self.Draw_OrbitOverhead(show_legend,_combo=True,_axuse=_axorb)
-#
-#        _axlig = plt.subplot(122)
-#        self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-#                             begins,multi_orbit,_combo=True,_axuse=_axlig)
-#
-#        fig_orblc.tight_layout(w_pad=2)
-#        self.fig_orblc = fig_orblc
-#        plt.show()
-#        return
-
-    
-#    def Combo_LCOrth(self,phase,relative_periast=False,force_contrast=False,
-#                     wave_band=False,a_microns=6.5,b_microns=9.5,
-#                     run_integrals=False,bolo=False,begins='periast',multi_orbit=False,show_legend=True):
-#        """Blah blah blah."""
-#        quit_out = self._can_make_the_fig('Combo_LCOrth',False)
-#        if quit_out:
-#            return
-#
-#        fig_lcorth,_axlig,_axmap,_cax = self._combo_faxmaker(figsize=(14,7),srow=15,scol=7,bcut=1)
-#
-#        # Return correct phase index to override calc in Orth_Mapper
-#        _i_phase = self.Draw_LightCurve(wave_band,a_microns,b_microns,run_integrals,bolo,
-#                                        begins,multi_orbit,_combo=True,_axuse=_axlig,
-#                                        _phase=phase,_relperi=relative_periast)
-#
-#        # Check if light curve quit with bad *begins*
-#        if _i_phase == None:
-#            return
-#
-#        self.Orth_Mapper(phase,relative_periast,force_contrast,far_side=False,
-#                         _combo=True,_axuse=_axmap,_cax=_cax,_i_phase=_i_phase)
-#
-#        if show_legend:
-#            _axlig.legend(loc='best')
-#
-#        fig_lcorth.tight_layout(w_pad=0)
-#        self.fig_lcorth = fig_lcorth
-#        plt.show()
-#        return
-
-    
     ### General Combo plots
+    
     def _combo_specs(self,axis,srow,scol):
         """Blah blah blah."""
         rs,cs = srow,scol
@@ -2018,8 +1940,8 @@ class parcel(object):
         if axis == 'ortho':
             rs -= 1
         elif axis in ['light','motion']:
-            l_test = (axis == 'light') and (False)
-            m_test = (axis == 'motion') and (False)
+            l_test = (axis == 'light') #and (False)
+            m_test = (axis == 'motion') #and (False)
             if l_test or m_test:
                 cs *= 2
 
@@ -2034,6 +1956,7 @@ class parcel(object):
         nc = int((cs_zero + cs_one)/scol)
 
         if nc == 4:
+            ### PICK UP HERE: NEED TO FIX light+motion TIGHT-LAYOUT ISSUE.
             fsiz = (10,10)
             spec = (2*srow,2*scol)
             loc_one = (rs_zero,0)
@@ -2094,7 +2017,7 @@ class parcel(object):
         
         return good_kwargs
 
-    ### LOOKING GOOD! NEED MORE TWEAKS? HOW TO ADD legend WITH NO orbit AXES?
+    ### LOOKING GOOD! NEED MORE TWEAKS?
     def ComboGraphics(self,want_axes=['orbit','light'],**kwargs):
         """Mix and Match!"""
         if ('light' in want_axes) or ('ortho' in want_axes):
@@ -2126,6 +2049,9 @@ class parcel(object):
             # Return index of given phase to override calc in Orth_Mapper
             _i_phase = self.Draw_LightCurve(_combo=True,_axuse=_axlis[i],
                                             _phase=_phase,_relperi=_relperi,**good_kwargs[i])
+            # Piggyback light legend on 'show_legend'
+            if ('orbit' not in want_axes) and kwargs.get('show_legend',True):
+                _axlis[i].legend(loc='best')
         else:
             _i_phase = None
         
