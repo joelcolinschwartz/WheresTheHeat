@@ -1713,7 +1713,7 @@ class parcel(object):
         chosen_integrals = np.sum(preplancked_integrals_[:,lower_i:upper_i],axis=1)
         return chosen_integrals[temper_i]
     
-
+    # PICK UP HERE: ADD REAL TELESCOPE BANDS + SPECTRAL RESPONSE?
     def Observed_Flux(self,wave_band=False,a_microns=6.5,b_microns=9.5,
                       kind='obs',run_integrals=False,bolo=False,separate=False,_extra=False):
         """Blah blah blah."""
@@ -1937,26 +1937,24 @@ class parcel(object):
     
     ### General Combo plots
     
-    def _combo_specs(self,axis,srow,scol):
+    def _combo_specs(self,axis,srow,scol,orbit_view):
         """Blah blah blah."""
         rs,cs = srow,scol
 
         if axis == 'ortho':
             rs -= 1
-        elif axis in ['light','motion']:
-            l_test = (axis == 'light') #and (False)
-            m_test = (axis == 'motion') #and (False)
-            if l_test or m_test:
-                cs *= 2
+        # ADD A HowRotChanges OPTION AND SPLIT THE motion AND light CHECKS APART?
+        elif (axis in ['light','motion']) and (orbit_view == 'all'):
+            cs *= 2
 
         return rs,cs
 
-    def _new_combo_faxmaker(self,want_axes):
+    def _new_combo_faxmaker(self,want_axes,orbit_view):
         """Blah blah blah."""
         srow,scol,bcut = 15,7,1
 
-        rs_zero,cs_zero = self._combo_specs(want_axes[0],srow,scol)
-        rs_one,cs_one = self._combo_specs(want_axes[1],srow,scol)
+        rs_zero,cs_zero = self._combo_specs(want_axes[0],srow,scol,orbit_view)
+        rs_one,cs_one = self._combo_specs(want_axes[1],srow,scol,orbit_view)
         nc = int((cs_zero + cs_one)/scol)
 
         if nc == 4:
@@ -2035,7 +2033,8 @@ class parcel(object):
             if quit_out:
                 return
         
-        fig_combo,_axlis,_axbar = self._new_combo_faxmaker(want_axes)
+        _orb_vw = kwargs.get('orbit_view','final')
+        fig_combo,_axlis,_axbar = self._new_combo_faxmaker(want_axes,_orb_vw)
         good_kwargs = self._group_combo_kwargs(want_axes,**kwargs)
         
         # Check for phase and related
