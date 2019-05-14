@@ -1775,15 +1775,16 @@ class parcel(object):
 
     ### Draw Light Curve
     
-    def _light_indices(self,begins):
+    def _light_indices(self,begins,orbit_view):
         """Blah blah blah."""
         bad_begin = False
         # Ensures ending phase is not included twice.
         fin_orb_start = self._final_orbit_index()
         
-        if fin_orb_start == 0:
+        if (orbit_view == 'all') or (fin_orb_start == 0):
             i_start,i_end = 0,self.timeval.size
-            bad_begin = True
+            if orbit_view != 'all':
+                bad_begin = True
         else:
             # The possible *begins*, with (fun trig angle) checks:
             # periast (xct), apast (nct), transit (xca), eclipse (nca), ascend (xsa), descend (nsa)
@@ -1838,19 +1839,21 @@ class parcel(object):
             t_a += self.Porb
         return
     
-    def _light_window(self,axlig,lc_high,f_y,ol_sty,bad_begin):
+    def _light_window(self,axlig,lc_high,f_y,ol_sty,bad_begin,orbit_view):
         """Blah blah blah."""
         axlig.set_ylim(-f_y*lc_high,(1+f_y)*lc_high)
         
         axlig.set_title('Light Curve of '+self.name)
-        xl = 'Relative Time' if bad_begin else 'Time from '+ol_sty[-1]
+        xl_check = bad_begin or (orbit_view == 'all')
+        xl = 'Relative Time' if xl_check else 'Time from '+ol_sty[-1]
         axlig.set_xlabel(xl+' (orbits)')
         axlig.set_ylabel('Flux ( planet / star )')
         return
-
+    
+    ### PICK UP HERE: ADD OPTION TO SHOW/HIDE THE ORBIT LANDMARKS?
     ### ADD FEEDBACK WHEN LOW numOrbs MEANS begins IS BAD???
     def Draw_LightCurve(self,wave_band=False,a_microns=6.5,b_microns=9.5,
-                        run_integrals=False,bolo=False,begins='periast',multi_orbit=False,
+                        run_integrals=False,bolo=False,begins='periast',orbit_view='final',
                         _combo=False,_axuse=None,_phase=None,_relperi=None):
         """Blah blah blah."""
         quit_out = self._can_make_the_fig('Draw_LightCurve',_combo)
@@ -1871,9 +1874,10 @@ class parcel(object):
         if _combo:
             axlig = _axuse
         else:
-            fig_light,axlig = plt.subplots(figsize=(7,7))
+            spec = (11,7) if orbit_view == 'all' else (7,7)
+            fig_light,axlig = plt.subplots(figsize=spec)
         
-        i_start,i_end,bad_begin = self._light_indices(dlc_begins)
+        i_start,i_end,bad_begin = self._light_indices(dlc_begins,orbit_view)
         lcf_use = lightcurve_flux[i_start:i_end]
         t_act,t_start,t_end,o_start,t_rel = self._light_times(i_start,i_end)
         
@@ -1890,7 +1894,7 @@ class parcel(object):
             _i_phase = None
 
         axlig.plot(t_rel,lcf_use,c='k',lw=2,zorder=3)
-        if multi_orbit:
+        if orbit_view == 'stack':
             m_i = np.array([i_start,i_end]) - self.stepsPerOrb
             while m_i[0] >= 0:
                 lcf_mul = lightcurve_flux[m_i[0]:m_i[1]]
@@ -1919,7 +1923,7 @@ class parcel(object):
                 self._prop_plotcheck(axlig,_time_phase,o_start,t_start,t_end,f_terp,
                                      orbloc_styles_['phase'],y_mark,_combo)
         
-        self._light_window(axlig,lc_high,f_y,orbloc_styles_[dlc_begins],bad_begin)
+        self._light_window(axlig,lc_high,f_y,orbloc_styles_[dlc_begins],bad_begin,orbit_view)
 
         if _combo:
             return _i_phase
@@ -1956,10 +1960,15 @@ class parcel(object):
         nc = int((cs_zero + cs_one)/scol)
 
         if nc == 4:
-            ### PICK UP HERE: NEED TO FIX light+motion TIGHT-LAYOUT ISSUE.
-            fsiz = (10,10)
-            spec = (2*srow,2*scol)
-            loc_one = (rs_zero,0)
+            fsiz = (11,11)
+            # Seems tight-layout has problems here when *srow* and *scol* are too big.
+            # So, redefine the specs!
+            srow,scol = 8,4
+            rpad = 1
+            rs_zero,cs_zero = srow,2*scol
+            rs_one,cs_one = srow,2*scol
+            spec = ((2*srow)+rpad,2*scol)
+            loc_one = (rs_zero+rpad,0)
         else:
             fpad,cpad = (0,0) if ('ortho' in want_axes) else (1,1)  ### (1,1) seems best
             fsiz = ((nc*7)+fpad,7)
@@ -1981,7 +1990,7 @@ class parcel(object):
     ### temp area: function calls for ComboGraphics
 #    LightCurve
 #    wave_band=False,a_microns=6.5,b_microns=9.5,
-#        run_integrals=False,bolo=False,begins='periast',multi_orbit=False,
+#        run_integrals=False,bolo=False,begins='periast',orbit_view='final',
 #            _combo=False,_axuse=None,_phase=None,_relperi=None
 #
 #    Orth_Mapper
@@ -2004,7 +2013,7 @@ class parcel(object):
             wax = want_axes[i]
             
             if wax == 'light':
-                kw_names = ('wave_band','a_microns','b_microns','run_integrals','bolo','begins','multi_orbit')
+                kw_names = ('wave_band','a_microns','b_microns','run_integrals','bolo','begins','orbit_view')
             elif wax == 'ortho':
                 kw_names = ('relative_periast','force_contrast','far_side')
             elif wax == 'orbit':
