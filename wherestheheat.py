@@ -1713,7 +1713,7 @@ class parcel(object):
         chosen_integrals = np.sum(preplancked_integrals_[:,lower_i:upper_i],axis=1)
         return chosen_integrals[temper_i]
     
-    # PICK UP HERE: ADD REAL TELESCOPE BANDS + SPECTRAL RESPONSE?
+    ### PICK UP HERE: NEED TO ADD REAL TELESCOPE BANDS + SPECTRAL RESPONSE.
     def Observed_Flux(self,wave_band=False,a_microns=6.5,b_microns=9.5,
                       kind='obs',run_integrals=False,bolo=False,separate=False,_extra=False):
         """Blah blah blah."""
